@@ -83,7 +83,7 @@ def isAlphaNum(str):
   return True
 
 def test():
-  print getJSString('"\\\n\r\a')
+  print getJSString('"\\\n\r\a\x93')
 
 if __name__ == '__main__':
   test()

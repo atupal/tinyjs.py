@@ -2,6 +2,8 @@
   tinyjs.py
   ~~~~~~~~~
 
+  simple file javascript interpreter
+
   :author: atupal
   :email: me@atupal.org
   :time: 12/9/2014
@@ -65,7 +67,7 @@ class LEX_TYPES(object):
   LEX_R_UNDEFINED = -1
   LEX_R_NEW = 1
 
-  LEX_R_LIST_END = -1# always the last entry
+  LEX_R_LIST_END = -1 # always the last entry
 
 
 class SCRIPTVAR_FLAGS(object):
@@ -102,21 +104,58 @@ class CScriptException(Exception):
     return repr(self.value)
 
 class CScriptLex(object):
+
+  # all member variables
+  def __initAllVars__(self):
+    self.currCh = None
+    self.nextCh = None
+    self.tk = None # The type of the token that we have
+    self.tokenStart = None # Position in the data at the beginning of the token we have here
+    self.tokenEnd = None # Position in the data at the last character of the token we have here
+    self.tokenLastEnd = None # Position in the data at the last character of the last token
+    self.tkStr = None # Data contained in the token we have here
+    self.data = None # Data string to get tokens from
+    self.dataStart = None
+    self.dataEnd = None # Start and end position in data string
+    self.dataOwned = None # Do we own this data string?
+    self.dataPos = None # Position in data (we CAN go past the end of the string here)
+
   # public method
-  def __init__(self, input, owner=None, startChar=-1, endChar=-1):
-    if owner and startChar != -1 and endChar != -1:
+  def __init__(self, *args):
+    self.__initAllVars__()
+    if len(args) == 3 and\
+        isinstance(args[0], CScriptLex) and\
+        isinstance(args[1], (int, long)) and\
+        isinstance(args[2], (int, long)):
+      owner = args[0]
+      startChar = args[1]
+      endChar = args[2]
+      """   /* When we go into a loop, we use getSubLex to get a lexer for just the sub-part of the
+             relevant string. This doesn't re-allocate and copy the string, but instead copies
+             the data pointer and sets dataOwned to false, and dataStart/dataEnd to the relevant things. */
+      """
       self.data = owner.data
       self.dataOwned = False
       self.dataStart = startChar
       self.dataEnd = endChar
-    else:
+    elif len(args) == 1 and\
+        isinstance(args[0], basestring):
+      input = args[0]
       self.data = input
       self.dataOwned = True
       self.dataStart = 0
       self.dataEnd = len(self.data)
     self.reset()
 
+  def __del__(self):
+    pass
+
   def match(self, expected_tk):
+    """Lexical match wotsit
+
+    raise CScriptException
+    """
+
     if self.tk != expected_tk:
       errorString = StringIO()
       print >>errorString, 'Got', self.getTokenStr(tk), 'expected' , self.getTokenStr(expected_tk),\
@@ -126,11 +165,11 @@ class CScriptLex(object):
     self.getNextToken()
 
   @classmethod
-  def getTokenStr(self, token):
-    if token > 32 and token < 128:
-      buf = "' '"
-      buf[1] = chr(token)
-      return buf
+  def getTokenStr(cls, token):
+    """ Get the string representation of the given token
+    """
+
+    if token > 32 and token < 128: return "'%s'" % chr(token)
     if token == LEX_TYPES.LEX_EOF : return "EOF";
     if token == LEX_TYPES.LEX_ID : return "ID";
     if token == LEX_TYPES.LEX_INT : return "INT";
@@ -173,11 +212,12 @@ class CScriptLex(object):
     if token == LEX_TYPES.LEX_R_UNDEFINED : return "undefined";
     if token == LEX_TYPES.LEX_R_NEW : return "new";
 
-    msg = StringIO()
-    print >>msg, "?[%d]" % token ,
-    return msg.getvalue()
+    return "?[%d]" % token
 
-  def rest(self):
+  def reset(self):
+    """ Reset this lex so we can start again
+    """
+
     self.dataPos = self.dataStart
     self.tokenStart = 0
     self.tokenEnd = 0
@@ -189,21 +229,23 @@ class CScriptLex(object):
     self.getNextToken()
 
   def getSubString(self, lastPosition):
+    """ Return a sub-string from the given position up until right now
+    """
+
     lastCharIdx = self.tokenLastEnd+1
     if lastCharIdx < self.dataEnd:
       """
       /* save a memory alloc by using our data array to create the
          substring */
       """
-      old = self.data[lastCharIdx]
-      self.data = chr(0) + self.data[1:]
-      value = self.data[lastPosition:]
-      self.data = self.data[:lastCharIdx-1] + old + self.data[lastCharIdx+1:]
-      return value
+      return self.data[lastPosition:lastCharIdx]
     else:
       return self.data[lastPosition:]
 
   def getSubLex(self, lastPosition):
+    """ Return a sub-lexer from the given position up until right now
+    """
+
     lastCharIdx = self.tokenLastEnd+1
     if lastCharIdx < self.dataEnd:
       return CScriptLex('', self, lastPosition, lastCharIdx)
@@ -211,6 +253,9 @@ class CScriptLex(object):
       return CScriptLex('', self, lastPosition, self.dataEnd)
 
   def getPosition(self, pos):
+    """ Return a string representing the position in lines and columns of the character pos given
+    """
+
     if pos<0: pos=self.tokenLastEnd
     line, col = 1, 1
     for i in xrange(pos):
@@ -222,21 +267,23 @@ class CScriptLex(object):
       if ch=='\n':
         line+=1
         col = 0
-    buf = StringIO()
-    print >>buf, "256(line: %d, col: %d)" % (line, col),
-    return buf.getvalue()
+
+    return '(line: %d, col: %d)' % (line, col)
 
   # protect method
   def getNextCh(self):
     self.currCh = self.nextCh
-    if self.dataPos < dataEnd:
+    if self.dataPos < self.dataEnd:
       self.nextCh = self.data[self.dataPos]
     else:
       self.nextCh = 0
     self.dataPos += 1
 
   def getNextToken(self):
-    tk = LEX_TYPES.LEX_EOF
+    """ Get the text token from our text string
+    """
+
+    self.tk = LEX_TYPES.LEX_EOF
     self.tkStr = ''
     while self.currCh and isWhitespace(self.currCh):
       self.getNextCh()
@@ -263,7 +310,6 @@ class CScriptLex(object):
         self.tkStr += self.currCh
         self.getNextCh()
       self.tk = LEX_TYPES.LEX_ID
-
       if self.tkStr=="if": self.tk = LEX_TYPES.LEX_R_IF
       elif self.tkStr=="else": self.tk = LEX_TYPES.LEX_R_ELSE
       elif self.tkStr=="do": self.tk = LEX_TYPES.LEX_R_DO
@@ -289,7 +335,7 @@ class CScriptLex(object):
         self.tkStr += self.currCh
         self.getNextCh()
       self.tk = LEX_TYPES.LEX_INT
-      while isNumeric(self.currCh) or (isHex and isHexadecimal(currCh)):
+      while isNumeric(self.currCh) or (isHex and isHexadecimal(self.currCh)):
         self.tkStr += self.currCh
         self.getNextCh()
       if not isHex and self.currCh == '.':
@@ -325,8 +371,6 @@ class CScriptLex(object):
         self.getNextCh()
       self.getNextCh()
       self.tk = LEX_TYPES.LEX_STR
-
-
     elif self.currCh=='\'':
       # strings again...
       self.getNextCh()
@@ -364,8 +408,7 @@ class CScriptLex(object):
     else:
       # single chars
       self.tk = self.currCh
-      if self.currCh:
-        self.getNextCh()
+      if self.currCh: self.getNextCh()
       if self.tk=='=' and self.currCh=='=': # ==
         self.tk = LEX_TYPES.LEX_EQUAL
         self.getNextCh()
@@ -431,55 +474,183 @@ class CScriptLex(object):
     self.tokenLastEnd = self.tokenEnd
     self.tokenEnd = self.dataPos-3
 
-class CScriptVar(object):
-
-  def __init__(self):
-    pass
 
 class CScriptVarLink(object):
 
-  # public
-  def __init__(self):
-    pass
+  def __initAllVars__(self):
+    self.name = None
+    self.nextSibling = None
+    self.prevSibling = None
+    self.var = None
+    self.owned = None
 
-  def replaceWith(self, newVar):
+  # public
+  def __init__(self, *args):
+    self.__initAllVars__()
+    if len(args) == 2 and\
+        isinstance(args[0], CScriptVar) and\
+        isinstance(args[1], basestring):
+      var = args[0]
+      name = args[1]
+      self.name = name
+      self.nextSibling = 0
+      self.prevSibling = 0
+      self.var = var.ref()
+      self.owned = False
+    elif len(args) == 1 and\
+        isinstance(args[0], CScriptVarLink):
+      link = args[0]
+      self.name = link.name
+      self.nextSibling = 0
+      self.prevSibling = 0
+      self.var = link.var.ref()
+      self.owned = False
+
+  def __del__(self):
     pass
+ 
+  def replaceWith(self, newVar):
+    """ Replace the Variable pointed to
+    """
+    if isinstance(newVar, CScriptVar):
+      oldVar = self.var
+      self.var = newVar.ref()
+      oldVar.unref()
+    elif isinstance(newVar, CScriptVarLink):
+      if newVar:
+        self.replaceWith(newVar.var)
+      else:
+        self.replaceWith(CScriptVar())
 
   def getIntName(self):
-    pass
+    """ Get the name as an integer (for arrays)
+    """
+    return int(self.name)
 
   def setIntName(self, n):
-    pass
+    """ Set the name as an integer (for arrays)
+    """
+    self.name = str(n)
 
 class CScriptVar(object):
+  """ Variable class (containing a doubly-linked list of children)
+  """
+
+  def __initAllVars__(self):
+    self.firstChild = None
+    self.lastChild = None
+    self.refs = None # The number of references held to this - used for garbage collection
+    self.data = None # The contents of this variable if it is a string
+    self.intData = None # The contents of this variable if it is an int
+    self.doubleData = None # The contents of this variable if it is a double
+    self.flags = None # the flags determine the type of the variable - int/double/string/etc
+    self.jsCallback = None # Callback for native functions
+    self.jsCallbackUserData = None # user data passed as second argument to native functions
 
   # public
-  def __init__(self):
-    pass
+  def __init__(self, *args):
+    self.__initAllVars__()
+    if len(args) == 0:
+      self.refs = 0
+      self.init()
+      self.flags = SCRIPTVAR_FLAGS.SCRIPTVAR_UNDEFINED
+    elif len(args) == 1 and\
+        isinstance(args[0], basestring):
+      str = args[0]
+      self.refs = 0
+      self.init()
+      self.flags = SCRIPTVAR_FLAGS.SCRIPTVAR_STRING
+      self.data = str
+    elif len(args) == 2 and\
+        isinstance(args[0], basestring) and\
+        isinstance(args[1], (int, long)):
+      varData = args[0]
+      varFlags = args[1]
+      self.init()
+      self.flags = varFlags
+      if varFlags & SCRIPTVAR_FLAGS.SCRIPTVAR_INTEGER:
+        self.intData = int(varData)
+      elif varFlags & SCRIPTVAR_FLAGS.SCRIPTVAR_DOUBLE:
+        self.doubleData = float(varData)
+      else:
+        self.data = varData
+    elif len(args) == 1 and\
+        isinstance(args[0], float):
+      val = args[0]
+      self.refs = 0
+      self.init()
+      self.setDouble(val)
+    elif len(args) == 1 and\
+        isinstance(args[0], (int, long)):
+      var = args[0]
+      self.refs = 0
+      self.init()
+      self.setInt(val)
+
+  def __del__(self):
+    self.removeAllChildren()
 
   def getReturnVar(self):
-    pass
+    return self.getParameter(TINYJS_RETURN_VAR)
 
   def setReturnVar(self, var):
-    pass
+    self.findChildOrCreate(TINYJS_RETURN_VAR).replaceWith(var)
 
   def getParameter(self, name):
-    pass
+    return findChildOrCreate(name).var
 
-  def findChild(childName):
-    pass
+  def findChild(self, childName):
+    v = self.firstChild
+    while v:
+      if v.name == childName:
+        return v
+      v = v.nextSibling
+    return 0
 
   def findChildOrCreate(childName, varFlags=SCRIPTVAR_FLAGS.SCRIPTVAR_UNDEFINED):
-    pass
+    l = self.findChild(childName)
+    if l: return l
+
+    return self.addChild(childName, CScriptVar(TINYJS_BLANK_DATA, varFlags))
 
   def findChildOrCreateByPath(self, path):
-    pass
+    p = path.find('.')
+    if p == -1:
+      return self.findChildOrCreate(path)
+
+    return self.findChildOrCreate(path[:p], SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT).var.\
+              findChildOrCreateByPath(path[p+1:])
 
   def addChild(self, childName, child=None):
-    pass
+    if self.isUndefined():
+      self.flags = SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT
+    # if no child supplied, create one
+    if not child:
+      child = CScriptVar()
 
+    link = CScriptVarLink(child, childName)
+    link.owned = True
+    if self.lastChild:
+      self.lastChild.nextSibling = link
+      link.prevSibling = self.lastChild
+      self.lastChild = link
+    else:
+      self.firstChild = link
+      self.lastChild = link
+
+    return link
+ 
   def addChildNoDup(self, childName, child=None):
-    pass
+    if not child:
+      child = CScriptVar()
+
+    v = self.findChild(childName)
+    if v:
+      v.replaceWith(child)
+    else:
+      v = addChild(childName, child)
+
+    return v
 
   def removeChild(self, child):
     pass
@@ -601,7 +772,17 @@ class CScriptVar(object):
   # protect
 
   def init(self):
-    pass # ///< initialisation of data members
+    """ initialisation of data members
+    """
+
+    self.firstChild = 0
+    self.lastChild = 0
+    self.flags = 0
+    self.jsCallback = 0
+    self.jsCallbackUserData = 0
+    self.data = TINYJS_BLANK_DATA
+    self.intData = 0
+    self.doubleData = 0
 
   # /** Copy the basic data and flags from the variable given, with no
   # * children. Should be used internally only - by copyValue and deepCopy */
