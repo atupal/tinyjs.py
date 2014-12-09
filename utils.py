@@ -2,12 +2,14 @@
   utils.py
   ~~~~~~~~
 
-  author: atupal
-  email: me@atupal.org
-  time: 12/9/2014
+  :author: atupal
+  :email: me@atupal.org
+  :time: 12/9/2014
 
   some util function for tinyjs.py
 """
+
+from StringIO import StringIO
 
 def isWhitespace(ch):
   return ch.isspace()
@@ -56,9 +58,9 @@ def getJSString(str):
     else:
       nCh = ord(nStr[i]) & 0xff
       if nCh < 32 or nCh > 127:
-        buffer = ''
-        print >>buffer, '\\x%02X' % nCh
-        replaceWith = buffer
+        buffer = StringIO()
+        print >>buffer, '\\x%02X' % nCh ,
+        replaceWith = buffer.getvalue()
       else:
         replace = False
 

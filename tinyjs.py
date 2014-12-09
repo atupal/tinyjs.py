@@ -2,10 +2,14 @@
   tinyjs.py
   ~~~~~~~~~
 
-  author: atupal
-  email: me@atupal.org
-  time: 12/9/2014
+  :author: atupal
+  :email: me@atupal.org
+  :time: 12/9/2014
 """
+
+from StringIO import StringIO
+
+from utils import *
 
 TINYJS_H = 1
 TINYJS_CALL_STACK = 1
@@ -92,40 +96,340 @@ TINYJS_TEMP_NAME = ""
 TINYJS_BLANK_DATA = ""
 
 class CScriptException(Exception):
-  def __init__(self):
-    super(CScriptException, self).__init__()
+  def __init__(self, value):
+    self.value = value
+  def __str__(self):
+    return repr(self.value)
 
 class CScriptLex(object):
-
   # public method
-  def __init__(self, ):
-    pass
+  def __init__(self, input, owner=None, startChar=-1, endChar=-1):
+    if owner and startChar != -1 and endChar != -1:
+      self.data = owner.data
+      self.dataOwned = False
+      self.dataStart = startChar
+      self.dataEnd = endChar
+    else:
+      self.data = input
+      self.dataOwned = True
+      self.dataStart = 0
+      self.dataEnd = len(self.data)
+    self.reset()
 
-  def match(self, pos):
-    pass
+  def match(self, expected_tk):
+    if self.tk != expected_tk:
+      errorString = StringIO()
+      print >>errorString, 'Got', self.getTokenStr(tk), 'expected' , self.getTokenStr(expected_tk),\
+            'at', self.getPosition(self.tokenStart),
+      raise CScriptException(errorString.getvalue())
+
+    self.getNextToken()
 
   @classmethod
   def getTokenStr(self, token):
-    pass
+    if token > 32 and token < 128:
+      buf = "' '"
+      buf[1] = chr(token)
+      return buf
+    if token == LEX_TYPES.LEX_EOF : return "EOF";
+    if token == LEX_TYPES.LEX_ID : return "ID";
+    if token == LEX_TYPES.LEX_INT : return "INT";
+    if token == LEX_TYPES.LEX_FLOAT : return "FLOAT";
+    if token == LEX_TYPES.LEX_STR : return "STRING";
+    if token == LEX_TYPES.LEX_EQUAL : return "==";
+    if token == LEX_TYPES.LEX_TYPEEQUAL : return "===";
+    if token == LEX_TYPES.LEX_NEQUAL : return "!=";
+    if token == LEX_TYPES.LEX_NTYPEEQUAL : return "!==";
+    if token == LEX_TYPES.LEX_LEQUAL : return "<=";
+    if token == LEX_TYPES.LEX_LSHIFT : return "<<";
+    if token == LEX_TYPES.LEX_LSHIFTEQUAL : return "<<=";
+    if token == LEX_TYPES.LEX_GEQUAL : return ">=";
+    if token == LEX_TYPES.LEX_RSHIFT : return ">>";
+    if token == LEX_TYPES.LEX_RSHIFTUNSIGNED : return ">>";
+    if token == LEX_TYPES.LEX_RSHIFTEQUAL : return ">>=";
+    if token == LEX_TYPES.LEX_PLUSEQUAL : return "+=";
+    if token == LEX_TYPES.LEX_MINUSEQUAL : return "-=";
+    if token == LEX_TYPES.LEX_PLUSPLUS : return "++";
+    if token == LEX_TYPES.LEX_MINUSMINUS : return "--";
+    if token == LEX_TYPES.LEX_ANDEQUAL : return "&=";
+    if token == LEX_TYPES.LEX_ANDAND : return "&&";
+    if token == LEX_TYPES.LEX_OREQUAL : return "|=";
+    if token == LEX_TYPES.LEX_OROR : return "||";
+    if token == LEX_TYPES.LEX_XOREQUAL : return "^=";
+    # // reserved words
+    if token == LEX_TYPES.LEX_R_IF : return "if";
+    if token == LEX_TYPES.LEX_R_ELSE : return "else";
+    if token == LEX_TYPES.LEX_R_DO : return "do";
+    if token == LEX_TYPES.LEX_R_WHILE : return "while";
+    if token == LEX_TYPES.LEX_R_FOR : return "for";
+    if token == LEX_TYPES.LEX_R_BREAK : return "break";
+    if token == LEX_TYPES.LEX_R_CONTINUE : return "continue";
+    if token == LEX_TYPES.LEX_R_FUNCTION : return "function";
+    if token == LEX_TYPES.LEX_R_RETURN : return "return";
+    if token == LEX_TYPES.LEX_R_VAR : return "var";
+    if token == LEX_TYPES.LEX_R_TRUE : return "true";
+    if token == LEX_TYPES.LEX_R_FALSE : return "false";
+    if token == LEX_TYPES.LEX_R_NULL : return "null";
+    if token == LEX_TYPES.LEX_R_UNDEFINED : return "undefined";
+    if token == LEX_TYPES.LEX_R_NEW : return "new";
+
+    msg = StringIO()
+    print >>msg, "?[%d]" % token ,
+    return msg.getvalue()
 
   def rest(self):
-    pass
+    self.dataPos = self.dataStart
+    self.tokenStart = 0
+    self.tokenEnd = 0
+    self.tokenLastEnd = 0
+    self.tk = 0
+    self.tkStr = ''
+    self.getNextCh()
+    self.getNextCh()
+    self.getNextToken()
 
-  def getSubString(self, pos):
-    pass
+  def getSubString(self, lastPosition):
+    lastCharIdx = self.tokenLastEnd+1
+    if lastCharIdx < self.dataEnd:
+      """
+      /* save a memory alloc by using our data array to create the
+         substring */
+      """
+      old = self.data[lastCharIdx]
+      self.data = chr(0) + self.data[1:]
+      value = self.data[lastPosition:]
+      self.data = self.data[:lastCharIdx-1] + old + self.data[lastCharIdx+1:]
+      return value
+    else:
+      return self.data[lastPosition:]
 
   def getSubLex(self, lastPosition):
-    pass
+    lastCharIdx = self.tokenLastEnd+1
+    if lastCharIdx < self.dataEnd:
+      return CScriptLex('', self, lastPosition, lastCharIdx)
+    else:
+      return CScriptLex('', self, lastPosition, self.dataEnd)
 
-  def getPosition(self, lastPosition):
-    pass
+  def getPosition(self, pos):
+    if pos<0: pos=self.tokenLastEnd
+    line, col = 1, 1
+    for i in xrange(pos):
+      if i < self.dataEnd:
+        ch = self.data[i]
+      else:
+        ch = chr(0)
+      col += 1
+      if ch=='\n':
+        line+=1
+        col = 0
+    buf = StringIO()
+    print >>buf, "256(line: %d, col: %d)" % (line, col),
+    return buf.getvalue()
 
   # protect method
   def getNextCh(self):
-    pass
+    self.currCh = self.nextCh
+    if self.dataPos < dataEnd:
+      self.nextCh = self.data[self.dataPos]
+    else:
+      self.nextCh = 0
+    self.dataPos += 1
 
   def getNextToken(self):
-    pass
+    tk = LEX_TYPES.LEX_EOF
+    self.tkStr = ''
+    while self.currCh and isWhitespace(self.currCh):
+      self.getNextCh()
+    # newline comments
+    if self.currCh == '/' and self.nextCh == '/':
+      while self.currCh and self.currCh != '\n':
+        self.getNextCh()
+      self.getNextCh()
+      self.getNextToken()
+      return
+    # block comments
+    if self.currCh == '/' and self.nextCh == '*':
+      while self.currCh and (self.currCh != '*' or self.nextCh != '/'):
+        self.getNextCh()
+      self.getNextCh()
+      self.getNextCh()
+      self.getNextToken()
+      return;
+    # record beginning of this token
+    self.tokenStart = self.dataPos - 2
+    # tokens
+    if isAlpha(self.currCh):  # IDs
+      while isAlpha(self.currCh) or isNumeric(self.currCh):
+        self.tkStr += self.currCh
+        self.getNextCh()
+      self.tk = LEX_TYPES.LEX_ID
+
+      if self.tkStr=="if": self.tk = LEX_TYPES.LEX_R_IF
+      elif self.tkStr=="else": self.tk = LEX_TYPES.LEX_R_ELSE
+      elif self.tkStr=="do": self.tk = LEX_TYPES.LEX_R_DO
+      elif self.tkStr=="while": self.tk = LEX_TYPES.LEX_R_WHILE
+      elif self.tkStr=="for": self.tk = LEX_TYPES.LEX_R_FOR
+      elif self.tkStr=="break": self.tk = LEX_TYPES.LEX_R_BREAK
+      elif self.tkStr=="continue": self.tk = LEX_TYPES.LEX_R_CONTINUE
+      elif self.tkStr=="function": self.tk = LEX_TYPES.LEX_R_FUNCTION
+      elif self.tkStr=="return": self.tk = LEX_TYPES.LEX_R_RETURN
+      elif self.tkStr=="var": self.tk = LEX_TYPES.LEX_R_VAR
+      elif self.tkStr=="true": self.tk = LEX_TYPES.LEX_R_TRUE
+      elif self.tkStr=="false": self.tk = LEX_TYPES.LEX_R_FALSE
+      elif self.tkStr=="null": self.tk = LEX_TYPES.LEX_R_NULL
+      elif self.tkStr=="undefined": self.tk = LEX_TYPES.LEX_R_UNDEFINED
+      elif self.tkStr=="new": self.tk = LEX_TYPES.LEX_R_NEW
+    elif isNumeric(self.currCh):
+      isHex = False
+      if self.currCh == '0':
+        self.tkStr += self.currCh
+        self.getNextCh()
+      if self.currCh == 'x':
+        isHex = True
+        self.tkStr += self.currCh
+        self.getNextCh()
+      self.tk = LEX_TYPES.LEX_INT
+      while isNumeric(self.currCh) or (isHex and isHexadecimal(currCh)):
+        self.tkStr += self.currCh
+        self.getNextCh()
+      if not isHex and self.currCh == '.':
+        self.tk = LEX_TYPES.LEX_FLOAT
+        self.tkStr += '.'
+        self.getNextCh()
+        while isNumeric(self.currCh):
+          self.tkStr += self.currCh
+          self.getNextCh()
+      # do fancy e-style floating point
+      if not isHex and (self.currCh == 'e' or self.currCh=='E'):
+        self.tk = LEX_TYPES.LEX_FLOAT
+        self.tkStr += self.currCh
+        self.getNextCh()
+        if self.currCh=='-':
+          self.tkStr += self.currCh
+          self.getNextCh()
+        while isNumeric(self.currCh):
+          self.tkStr += self.currCh
+          self.getNextCh()
+    elif self.currCh == '"':
+      # strings...
+      self.getNextCh()
+      while self.currCh and self.currCh!='"':
+        if self.currCh == '\\':
+          self.getNextCh()
+          if self.currCh == 'n' : self.tkStr += '\n'
+          elif self.currCh == '"' : self.tkStr += '"'
+          elif self.currCh == '\\': self.tkStr += '\\'
+          else: self.tkStr += self.currCh
+        else:
+          self.tkStr += self.currCh
+        self.getNextCh()
+      self.getNextCh()
+      self.tk = LEX_TYPES.LEX_STR
+
+
+    elif self.currCh=='\'':
+      # strings again...
+      self.getNextCh()
+      while self.currCh and self.currCh!='\'':
+        if self.currCh == '\\':
+          self.getNextCh()
+          if self.currCh == 'n' : self.tkStr += '\n'
+          elif self.currCh == 'a' : self.tkStr += '\a'
+          elif self.currCh == 'r' : self.tkStr += '\r'
+          elif self.currCh == 't' : self.tkStr += '\t'
+          elif self.currCh == '\'' : self.tkStr += '\''
+          elif self.currCh == '\\' : self.tkStr += '\\'
+          elif self.currCh == 'x' :  # hex digits
+            self.getNextCh()
+            buf = self.currCh
+            self.getNextCh()
+            buf += self.currCh
+            self.tkStr += chr(int(buf, 16))
+          else:
+            if self.currCh>='0' and self.currCh<='7':
+              # octal digits
+              buf = self.currCh
+              self.getNextCh()
+              buf += self.currCh
+              self.getNextCh()
+              buf += self.currCh
+              self.tkStr += chr(int(buf, 8))
+            else:
+              self.tkStr += self.currCh
+        else:
+          self.tkStr += self.currCh
+        self.getNextCh()
+      self.getNextCh()
+      self.tk = LEX_TYPES.LEX_STR
+    else:
+      # single chars
+      self.tk = self.currCh
+      if self.currCh:
+        self.getNextCh()
+      if self.tk=='=' and self.currCh=='=': # ==
+        self.tk = LEX_TYPES.LEX_EQUAL
+        self.getNextCh()
+        if self.currCh=='=': # ===
+          self.tk = LEX_TYPES.LEX_TYPEEQUAL
+          self.getNextCh()
+      elif self.tk=='!' and self.currCh=='=': # // !=
+        self.tk = LEX_TYPES.LEX_NEQUAL
+        self.getNextCh()
+        if self.currCh=='=': # // !==
+          self.tk = LEX_TYPES.LEX_NTYPEEQUAL
+          self.getNextCh()
+      elif self.tk=='<' and self.currCh=='=':
+        self.tk = LEX_TYPES.LEX_LEQUAL
+        self.getNextCh()
+      elif self.tk=='<' and self.currCh=='<':
+        self.tk = LEX_TYPES.LEX_LSHIFT
+        self.getNextCh()
+        if self.currCh=='=': # // <<=
+          self.tk = LEX_TYPES.LEX_LSHIFTEQUAL
+          self.getNextCh()
+      elif self.tk=='>' and self.currCh=='=':
+        self.tk = LEX_TYPES.LEX_GEQUAL
+        self.getNextCh()
+      elif self.tk=='>' and self.currCh=='>':
+        self.tk = LEX_TYPES.LEX_RSHIFT
+        self.getNextCh()
+        if self.currCh=='=': # // >>=
+          self.tk = LEX_TYPES.LEX_RSHIFTEQUAL
+          self.getNextCh()
+        elif self.currCh=='>': # // >>>
+          self.tk = LEX_TYPES.LEX_RSHIFTUNSIGNED
+          self.getNextCh()
+      elif self.tk=='+' and self.currCh=='=':
+        self.tk = LEX_TYPES.LEX_PLUSEQUAL
+        self.getNextCh()
+      elif self.tk=='-' and self.currCh=='=':
+        self.tk = LEX_TYPES.LEX_MINUSEQUAL
+        self.getNextCh()
+      elif self.tk=='+' and self.currCh=='+':
+        self.tk = LEX_TYPES.LEX_PLUSPLUS
+        self.getNextCh()
+      elif self.tk=='-' and self.currCh=='-':
+        self.tk = LEX_TYPES.LEX_MINUSMINUS
+        self.getNextCh()
+      elif self.tk=='&' and self.currCh=='=':
+        self.tk = LEX_TYPES.LEX_ANDEQUAL
+        self.getNextCh()
+      elif self.tk=='&' and self.currCh=='&':
+        self.tk = LEX_TYPES.LEX_ANDAND
+        self.getNextCh()
+      elif self.tk=='|' and self.currCh=='=':
+        self.tk = LEX_TYPES.LEX_OREQUAL
+        self.getNextCh()
+      elif self.tk=='|' and self.currCh=='|':
+        self.tk = LEX_TYPES.LEX_OROR
+        self.getNextCh()
+      elif self.tk=='^' and self.currCh=='=':
+        self.tk = LEX_TYPES.LEX_XOREQUAL
+        self.getNextCh()
+
+    # /* This isn't quite right yet */
+    self.tokenLastEnd = self.tokenEnd
+    self.tokenEnd = self.dataPos-3
 
 class CScriptVar(object):
 
