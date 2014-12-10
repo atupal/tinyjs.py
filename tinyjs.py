@@ -21,6 +21,9 @@ TRACE = 'printf'
 
 TINYJS_LOOP_MAX_ITERATIONS = 8192
 
+s_null = "null"
+s_undefined = "undefined"
+
 class LEX_TYPES(object):
   LEX_EOF = 0
   LEX_ID =256
@@ -653,58 +656,175 @@ class CScriptVar(object):
     return v
 
   def removeChild(self, child):
-    pass
+    link = self.firstChild
+    while link:
+      if link.var == child:
+        break
+      link = link.nextSibling
+    ASSERT(link)
+    self.removeLink(link)
 
   def removeLink(self, link):
-    pass
+    if not link: return
+    if link.nextSibling:
+      link.nextSibling.prevSibling = link.prevSibling
+    if link.prevSibling:
+      link.nextSibling = link.nextSibling
+    if self.lastChild == link:
+      self.lastChild = link.prevSibling
+    if self.firstChild == link:
+      self.firstChild = link.nextSibling
+    del link
 
   def removeAllChildren():
-    pass
+    c = self.firstChild
+    while c:
+      t = c.nextSibling
+      del c
+      c = t
+    self.firstChild = 0
+    self.lastChild = 0
 
   def getArrayIndex(self, idx):
-    pass
+    sIdx = '%d' % idx
+    link = self.findChild(sIdx)
+    if link: return link.var
+    else: return CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_NULL) # undefined
 
   def setArrayIndex(self, idx, value):
-    pass
+    sIdx = '%d' % idx
+    link = self.findChild(sIdx)
+
+    if link:
+      if value.isUndefined():
+        self.removeLink(link)
+      else:
+        link.replaceWith(value)
+    else:
+      if not value.isUndefined():
+        self.addChild(sIdx, value)
   
   def getArrayLength(self):
-    pass
+    highest = -1;
+    if not self.isArray(): return 0
+
+    link = self.firstChild
+    while link:
+      if self.isNumber(link.name):
+        val = int(link.name)
+        if val > highest: highest = val
+      link = link.nextSibling
+    return highest+1
 
   def getChildren(self):
-    pass
+    n = 0
+    link = self.firstChild
+    while link:
+      n += 1
+      link = link.nextSibling
+    return n;
 
   def getInt(self):
-    pass
+    """ strtol understands about hex and octal
+    """
+
+    if self.isInt(): return self.intData
+    if self.isNull(): return 0
+    if self.isUndefined(): return 0
+    if self.isDouble(): return int(self.doubleData)
+    return 0;
 
   def getBool(self):
     return self.getInt() != 0
 
   def getDouble(self):
-    pass
+    if self.isDouble(): return self.doubleData
+    if self.isInt(): return self.intData
+    if self.isNull(): return 0
+    if self.isUndefined(): return 0
+    return 0 # or NaN?
 
   def getString(self):
-    pass
+    """ Because we can't return a string that is generated on demand.
+        I should really just use char* :)
+    """
+
+    if self.isInt():
+      buffer = '%d' % self.intData
+      self.data = buffer
+      return data
+    if self.isDouble():
+      buffer = '%f' % self.doubleData
+      self.data = buffer
+      return data
+    if self.isNull(): return s_null
+    if self.isUndefined(): return s_undefined
+    # are we just a string here?
+    return str(self.data)
 
   def getParsableString(self):
-    pass # ///< get Data as a parsable javascript string
+    # get Data as a parsable javascript string
+    # Numbers can just be put in directly
+    if self.isNumeric():
+      return self.getString()
+    if self.isFunction():
+      funcStr = "function ("
+      # get list of parameters
+      link = self.firstChild
+      while link:
+        funcStr += link.name
+        if link.nextSibling: funcStr += ","
+        link = link.nextSibling
+      # add function body
+      funcStr += ") %s" % self.getString()
+      return funcStr
+    #if it is a string then we quote it
+    if self.isString():
+      return getJSString(self.getString())
+    if self.isNull():
+      return "null"
+    return "undefined"
 
-  def setInt(self, num):
-    pass
+  def setInt(self, val):
+    self.flags = (self.flags&~SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_FLAGS.SCRIPTVAR_INTEGER
+    self.intData = val
+    self.doubleData = 0
+    self.data = TINYJS_BLANK_DATA
 
   def setDouble(self, val):
-    pass
+    self.flags = (self.flags&~SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_FLAGS.SCRIPTVAR_DOUBLE
+    self.doubleData = val
+    self.intData = 0
+    self.data = TINYJS_BLANK_DATA
 
   def setString(self, str):
-    pass
+    # name sure it's not still a number or integer
+    self.flags = (self.flags&~SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_FLAGS.SCRIPTVAR_STRING
+    self.data = str
+    self.intData = 0
+    self.doubleData = 0
 
   def setUndefined(self):
-    pass
+    # name sure it's not still a number or integer
+    self.flags = (self.flags&~SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_FLAGS.SCRIPTVAR_UNDEFINED
+    self.data = TINYJS_BLANK_DATAk
+    self.intData = 0
+    self.doubleData = 0
+    self.removeAllChildren()
 
   def setArray(self):
-    pass
+    # name sure it's not still a number or integer
+    self.flags = (self.flags&~SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_FLAGS.SCRIPTVAR_ARRAY
+    self.data = TINYJS_BLANK_DATA
+    self.intData = 0
+    self.doubleData = 0
+    self.removeAllChildren()
 
   def equals(self, v):
-    pass
+    resV = self.mathsOp(v, LEX_TYPES.LEX_EQUAL)
+    res = resV.getBool()
+    del resV
+    return res
 
   def isInt(self):
     return self.flags&SCRIPTVAR_FLAGS.ORREISCRIPTVAR_INTEGER!=0
@@ -739,38 +859,209 @@ class CScriptVar(object):
     return self.firstChild==0 # ///< Is this *not* an array/object/etc
 
   def mathsOp(self, b, op):
-    pass # ///< do a maths op with another script variable
+    """ do a maths op with another script variable
+    """
 
-  def copyValue(val):
-    pass # ///< copy the value from the value given
+    a = self
+    # Type equality check
+    if op == LEX_TYPES.LEX_TYPEEQUAL or op == LEX_TYPES.LEX_NTYPEEQUAL:
+      # check type first, then call again to check data
+      eql = (a.flags & SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK) ==\
+                  (b.flags & SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK)
+      if eql:
+        contents = a.mathsOp(b, LEX_TYPES.LEX_EQUAL)
+        if not contents.getBool(): eql = false
+        if not contents.refs: del contents
+      if op == LEX_TYPES.LEX_TYPEEQUAL:
+        return CScriptVar(eql)
+      else:
+        return CScriptVar(not eql)
+    # do maths...
+    if a.isUndefined() and b.isUndefined():
+      if op == LEX_TYPES.LEX_EQUAL: return CScriptVar(True)
+      elif op == LEX_TYPES.LEX_NEQUAL: return CScriptVar(False)
+      else: return CScriptVar() # undefined
+    elif (a.isNumeric() or a.isUndefined()) and\
+               (b.isNumeric() or b.isUndefined()):
+      if not a.isDouble() and not b.isDouble():
+        # use ints
+        da = a.getInt()
+        db = b.getInt()
+        if op == '+': return CScriptVar(da+db)
+        elif op == '-': return CScriptVar(da-db)
+        elif op == '*': return CScriptVar(da*db)
+        elif op == '/': return CScriptVar(da/db)
+        elif op == '&': return CScriptVar(da&db)
+        elif op == '|': return CScriptVar(da|db)
+        elif op == '^': return CScriptVar(da^db)
+        elif op == '%': return CScriptVar(da%db)
+        elif op == LEX_TYPES.LEX_EQUAL:     return CScriptVar(da==db)
+        elif op == LEX_TYPES.LEX_NEQUAL:    return CScriptVar(da!=db)
+        elif op == '<':     return CScriptVar(da<db)
+        elif op == LEX_TYPES.LEX_LEQUAL:    return CScriptVar(da<=db)
+        elif op == '>':     return CScriptVar(da>db)
+        elif op == LEX_TYPES.LEX_GEQUAL:    return CScriptVar(da>=db)
+        else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the Int datatype")
+      else:
+        # use doubles
+        da = a.getDouble()
+        db = b.getDouble()
+        if op == '+': return CScriptVar(da+db)
+        elif op == '-': return CScriptVar(da-db)
+        elif op == '*': return CScriptVar(da*db)
+        elif op == '/': return CScriptVar(da/db)
+        elif op == LEX_TYPES.LEX_EQUAL:     return CScriptVar(da==db)
+        elif op == LEX_TYPES.LEX_NEQUAL:    return CScriptVar(da!=db)
+        elif op == '<':     return CScriptVar(da<db)
+        elif op == LEX_TYPES.LEX_LEQUAL:    return CScriptVar(da<=db)
+        elif op == '>':     return CScriptVar(da>db)
+        elif op == LEX_TYPES.LEX_GEQUAL:    return CScriptVar(da>=db)
+        else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the Double datatype")
+    elif a.isArray():
+      # Just check pointers
+      if op == LEX_TYPES.LEX_EQUAL: return CScriptVar(a==b)
+      elif op == LEX_TYPES.LEX_NEQUAL: return CScriptVar(a!=b)
+      else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the Array datatype")
+    elif a.isObject():
+      # Just check pointers
+      if op == LEX_TYPES.LEX_EQUAL: return CScriptVar(a==b)
+      elif op == LEX_TYPES.LEX_NEQUAL: return CScriptVar(a!=b)
+      else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the Object datatype")
+    else:
+       da = a.getString();
+       db = b.getString();
+       # use strings
+       if op == '+':           return CScriptVar(da+db, SCRIPTVAR_FLAGS.SCRIPTVAR_STRING)
+       elif op == LEX_TYPES.LEX_EQUAL:     return CScriptVar(da==db)
+       elif op == LEX_TYPES.LEX_NEQUAL:    return CScriptVar(da!=db)
+       elif op == '<':     return CScriptVar(da<db)
+       elif op == LEX_TYPES.LEX_LEQUAL:    return CScriptVar(da<=db)
+       elif op == '>':     return CScriptVar(da>db)
+       elif op == LEX_TYPES.LEX_GEQUAL:    return CScriptVar(da>=db)
+       else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the string datatype");
+    ASSERT(0)
+    return 0
+
+  def copyValue(self, val):
+    # copy the value from the value given
+    if val:
+      self.copySimpleData(val)
+      # remove all current children
+      self.removeAllChildren()
+      # copy children of 'val'
+      child = val.firstChild
+      while child:
+        copied
+        # don't copy the 'parent' object...
+        if child.name != TINYJS_PROTOTYPE_CLASS:
+          copied = child.var.deepCopy()
+        else:
+          copied = child.var
+
+        self.addChild(child.name, copied)
+
+        child = child.nextSibling
+    else:
+      self.setUndefined()
 
   def deepCopy(self):
-    pass # ///< deep copy this node and return the result
+    # deep copy this node and return the result
+    newVar = CScriptVar()
+    newVar.copySimpleData(self)
+    # copy children
+    child = self.firstChild
+    while child:
+      copied
+      # don't copy the 'parent' object...
+      if child.name != TINYJS_PROTOTYPE_CLASS:
+        copied = child.var.deepCopy()
+      else:
+        copied = child.var
 
-  def trace(indentStr = "", name = ""):
-    pass # ///< Dump out the contents of this using trace
+      newVar.addChild(child.name, copied)
+      child = child.nextSibling
+    return newVar;
+
+  def trace(self, indentStr = "", name = ""):
+    # Dump out the contents of this using trace
+    TRACE("%s'%s' = '%s' %s" % (
+        indentStr,
+        name,
+        self.getString(),
+        self.getFlagsAsString()))
+    indent = indentStr+" "
+    link = self.firstChild
+    while link:
+      link.var.trace(indent, link.name)
+      link = link.nextSibling
 
   def getFlagsAsString(self):
-    pass # ///< For debugging - just dump a string version of the flags
+    # For debugging - just dump a string version of the flags
+    flagstr = ""
+    if self.flags&SCRIPTVAR_FLAGS.SCRIPTVAR_FUNCTION: flagstr = flagstr + "FUNCTION "
+    if self.flags&SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT: flagstr = flagstr + "OBJECT "
+    if self.flags&SCRIPTVAR_FLAGS.SCRIPTVAR_ARRAY: flagstr = flagstr + "ARRAY "
+    if self.flags&SCRIPTVAR_FLAGS.SCRIPTVAR_NATIVE: flagstr = flagstr + "NATIVE "
+    if self.flags&SCRIPTVAR_FLAGS.SCRIPTVAR_DOUBLE: flagstr = flagstr + "DOUBLE "
+    if self.flags&SCRIPTVAR_FLAGS.SCRIPTVAR_INTEGER: flagstr = flagstr + "INTEGER "
+    if self.flags&SCRIPTVAR_FLAGS.SCRIPTVAR_STRING: flagstr = flagstr + "STRING "
+    return flagstr
 
-  def getJSON(destination, linePrefix=""):
-    pass # ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
+  def getJSON(self, destination, linePrefix=""):
+    # Write out all the JS code needed to recreate this script variable to the stream (as JSON)
+    if self.isObject():
+      indentedLinePrefix = linePrefix+"  "
+      # children - handle with bracketed list
+      destination += "{ \n"
+      link = self.firstChild
+      while link:
+        destination += indentedLinePrefix
+        destination += getJSString(link.name)
+        destination += " : "
+        destination = link.var.getJSON(destination, indentedLinePrefix)
+        link = link.nextSibling
+        if link:
+          destination += ",\n"
+      destination += "\n" + linePrefix + "}"
+    elif self.isArray():
+      indentedLinePrefix = linePrefix+"  "
+      destination += "[\n"
+      len = self.getArrayLength()
+      if len>10000: len=10000 # we don't want to get stuck here!
 
-  def setCallback(callback, userdata):
-    pass # ///< Set the callback for native functions
+      for i in xrange(len):
+        destination = self.getArrayIndex(i).getJSON(destination, indentedLinePrefix)
+        if i<len-1: destination += ",\n"
+
+      destination += "\n" + linePrefix + "]"
+    else:
+      # no children or a function... just write value directly
+      destination += self.getParsableString()
+    return destination
+
+  def setCallback(self, callback, userdata):
+    # Set the callback for native functions
+    self.jsCallback = callback
+    self.jsCallbackUserData = userdata
 
   # /// For memory management/garbage collection
   def ref(self):
-    pass # ///< Add reference to this variable
+    # Add reference to this variable
+    self.refs+=1
+    return self
 
   def unref(self):
-    pass # ///< Remove a reference, and delete this variable if required
+    # Remove a reference, and delete this variable if required
+    if self.refs<=0: print("OMFG, we have unreffed too far!")
+    self.refs -= 1
+    if self.refs==0:
+      del self
 
   def getRefs(self):
-    pass # ///< Get the number of references to this script variable
+    # Get the number of references to this script variable
+    return self.refs;
 
-  # protect
-
+  # protect:
   def init(self):
     """ initialisation of data members
     """
@@ -786,9 +1077,11 @@ class CScriptVar(object):
 
   # /** Copy the basic data and flags from the variable given, with no
   # * children. Should be used internally only - by copyValue and deepCopy */
-  def copySimpleData(val):
-    pass
-
+  def copySimpleData(self, val):
+    self.data = val.data
+    self.intData = val.intData
+    self.doubleData = val.doubleData
+    self.flags = (self.flags & ~SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK) | (val.flags & SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK)
 
 class CTinyJS(object):
   # public:

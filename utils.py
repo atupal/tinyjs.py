@@ -11,6 +11,12 @@
 
 from StringIO import StringIO
 
+def TRACE(x):
+  print x
+
+def ASSERT(x):
+  assert(x)
+
 def isWhitespace(ch):
   return ch.isspace()
 
