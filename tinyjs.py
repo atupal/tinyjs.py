@@ -24,53 +24,79 @@ TINYJS_LOOP_MAX_ITERATIONS = 8192
 s_null = "null"
 s_undefined = "undefined"
 
+def TRACE(x):
+  print x
+
+def CLEAN(x):
+  __v = x
+  if __v and not __v.owned:
+    del __v
+
+def CREATE_LINK(LINK, VAR):
+  if not LINK or LINK.owned:
+    LINK = CScriptVarLink(VAR)
+  else:
+    LINK.replaceWith(VAR)
+
+def ASSERT(x):
+  assert(x)
+
+CURR_INT=256
+def NEXT_INT():
+  global CURR_INT
+  CURR_INT += 1
+  return CURR_INT
+
 class LEX_TYPES(object):
   LEX_EOF = 0
   LEX_ID =256
-  LEX_INT = -1
-  LEX_FLOAT = -1
-  LEX_STR = -1
+  LEX_INT = NEXT_INT()
+  LEX_FLOAT = NEXT_INT()
+  LEX_STR = NEXT_INT()
 
-  LEX_EQUAL = -1
-  LEX_TYPEEQUAL = -1
-  LEX_NEQUAL = -1
-  LEX_NTYPEEQUAL = -1
-  LEX_LEQUAL = -1
-  LEX_LSHIFT = -1
-  LEX_LSHIFTEQUAL = -1
-  LEX_GEQUAL = -1
-  LEX_RSHIFT = -1
-  LEX_RSHIFTUNSIGNED = -1
-  LEX_RSHIFTEQUAL = -1
-  LEX_PLUSEQUAL = -1
-  LEX_MINUSEQUAL = -1
-  LEX_PLUSPLUS = -1
-  LEX_MINUSMINUS = -1
-  LEX_ANDEQUAL = -1
-  LEX_ANDAND = -1
-  LEX_OREQUAL = -1
-  LEX_OROR = -1
-  LEX_XOREQUAL = -1
+  LEX_EQUAL = NEXT_INT()
+  LEX_TYPEEQUAL = NEXT_INT()
+  LEX_NEQUAL = NEXT_INT()
+  LEX_NTYPEEQUAL = NEXT_INT()
+  LEX_LEQUAL = NEXT_INT()
+  LEX_LSHIFT = NEXT_INT()
+  LEX_LSHIFTEQUAL = NEXT_INT()
+  LEX_GEQUAL = NEXT_INT()
+  LEX_RSHIFT = NEXT_INT()
+  LEX_RSHIFTUNSIGNED = NEXT_INT()
+  LEX_RSHIFTEQUAL = NEXT_INT()
+  LEX_PLUSEQUAL = NEXT_INT()
+  LEX_MINUSEQUAL = NEXT_INT()
+  LEX_PLUSPLUS = NEXT_INT()
+  LEX_MINUSMINUS = NEXT_INT()
+  LEX_ANDEQUAL = NEXT_INT()
+  LEX_ANDAND = NEXT_INT()
+  LEX_OREQUAL = NEXT_INT()
+  LEX_OROR = NEXT_INT()
+  LEX_XOREQUAL = NEXT_INT()
 
   #reserved words
   #define LEX_R_LIST_START LEX_R_IF
-  LEX_R_IF = -1
-  LEX_R_ELSE = -1
-  LEX_R_DO = -1
-  LEX_R_WHILE = -1
-  LEX_R_FOR = -1
-  LEX_R_BREAK = -1
-  LEX_R_CONTINUE = -1
-  LEX_R_FUNCTION = -1
-  LEX_R_RETURN = -1
-  LEX_R_VAR = -1
-  LEX_R_TRUE = -1
-  LEX_R_FALSE = -1
-  LEX_R_NULL = -1
-  LEX_R_UNDEFINED = -1
-  LEX_R_NEW = 1
+  LEX_R_LIST_START = -1
+  LEX_R_IF = NEXT_INT()
+  LEX_R_ELSE = NEXT_INT()
+  LEX_R_DO = NEXT_INT()
+  LEX_R_WHILE = NEXT_INT()
+  LEX_R_FOR = NEXT_INT()
+  LEX_R_BREAK = NEXT_INT()
+  LEX_R_CONTINUE = NEXT_INT()
+  LEX_R_FUNCTION = NEXT_INT()
+  LEX_R_RETURN = NEXT_INT()
+  LEX_R_VAR = NEXT_INT()
+  LEX_R_TRUE = NEXT_INT()
+  LEX_R_FALSE = NEXT_INT()
+  LEX_R_NULL = NEXT_INT()
+  LEX_R_UNDEFINED = NEXT_INT()
+  LEX_R_NEW =NEXT_INT()
 
-  LEX_R_LIST_END = -1 # always the last entry
+  LEX_R_LIST_END = NEXT_INT() # always the last entry
+
+LEX_TYPES.LEX_R_LIST_START = LEX_TYPES.LEX_R_IF
 
 
 class SCRIPTVAR_FLAGS(object):
@@ -1128,7 +1154,7 @@ class CTinyJS(object):
     oldScopes = self.scopes
     self.l = CScriptLex(code)
     if TINYJS_CALL_STACK:
-      self.call_stack.clear()
+      self.call_stack = []
     self.scopes = []
     self.scopes.append(self.root)
     try:
@@ -1153,6 +1179,44 @@ class CTinyJS(object):
          'undefined' */
     """
 
+    oldLex = self.l
+    oldScopes = self.scopes
+
+    self.l = CScriptLex(code)
+    if TINYJS_CALL_STACK:
+      self.call_stack = []
+    self.scopes = []
+    self.scopes.append(self.root)
+    v = 0
+    try:
+      execute = True
+      while 1:
+        CLEAN(v);
+        v = self.base(execute)
+        if self.l.tk!=LEX_TYPES.LEX_EOF: l.match(ord(';'))
+        if not self.l.tk != LEX_TYPES.LEX_EOF:
+          break
+    except CScriptException as e:
+      msg = "Error %s" % str(e)
+      if TINYJS_CALL_STACK:
+        for i in xrange(len(self.call_stack)-1, -1, -1):
+          msg = '%s\n%d: %s' % (msg, i, self.call_stack[i])
+      msg = "%s at %s" % (msg, self.l.getPosition())
+      del self.l
+      self.l = oldLex
+      raise CScriptException(msg)
+    del self.l
+    self.l = oldLex
+    self.scopes = oldScopes
+
+    if v:
+      # r = *v
+      r = v
+      CLEAN(v)
+      return r
+    # return undefined...
+    return CScriptVarLink(CScriptVar())
+
   def evaluate(self, code):
     """ add a native function to be called from TinyJS
         example:
@@ -1169,20 +1233,74 @@ class CTinyJS(object):
            \endcode
     """
 
+    return self.evaluateComplex(code).var.getString()
+
   def addNative(self, funcDesc, ptr, userdata):
-    pass
+    oldLex = self.l
+    self.l = CScriptLex(funcDesc)
+
+    base = self.root
+
+    self.l.match(LEX_TYPES.LEX_R_FUNCTION)
+    funcName = l.tkStr
+    self.l.match(LEX_TYPES.LEX_ID)
+    # Check for dots, we might want to do something like function String.substring ... 
+    while self.l.tk == ord('.'):
+      self.l.match(ord('.'))
+      link = base.findChild(funcName)
+      # if it doesn't exist, make an object class
+      if not link: link = base.addChild(funcName, CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT))
+      base = link.var
+      funcName = self.l.tkStr
+      self.l.match(LEX_TYPES.LEX_ID)
+
+    funcVar = CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_FUNCTION | SCRIPTVAR_FLAGS.SCRIPTVAR_NATIVE)
+    funcVar.setCallback(ptr, userdata)
+    self.parseFunctionArguments(funcVar)
+    del self.l
+    self.l = oldLex
+
+    base.addChild(funcName, funcVar)
 
   # Get the given variable specified by a path (var1.var2.etc), or return 0
   def getScriptVariable(self, path):
-    pass
+    # traverse path
+    prevIdx = 0
+    thisIdx = path.find('.')
+    if thisIdx == -1: thisIdx = len(path)
+    var = self.root
+    while var and prevIdx<len(path):
+      el = path[prevIdx: prevIdx]
+      varl = var.findChild(el)
+      var = varl.var if varl else 0
+      prevIdx = thisIdx+1
+      thisIdx = path[prevIdx+1:].find('.')
+      if thisIdx == -1: thisIdx = len(path)
+    return var
 
   # Get the value of the given variable, or return 0
   def getVariable(self, path):
-    pass
+    var = self.getScriptVariable(path)
+    # return result
+    if var:
+        return var.getString()
+    else:
+        return 0
 
   # set the value of the given variable, return trur if it exists and gets set
   def setVariable(self, path, varData):
-    pass
+    var = self.getScriptVariable(path)
+    # return result
+    if var:
+      if var.isInt():
+        var.setInt(int(varData))
+      elif var.isDouble():
+        var.setDouble(float(varData))
+      else:
+        var.setString(varData)
+      return True
+    else:
+      return False
 
   # Send all variables to stdout
   def trace(self):
@@ -1191,53 +1309,631 @@ class CTinyJS(object):
   # private:
   # parsing - in order of precedence
   def functionCall(self, execute, function, parent):
-    pass
+    """ Handle a function call (assumes we've parsed the function name and we're
+        on the start bracket). 'parent' is the object that contains this method,
+        if there was one (otherwise it's just a normnal function).
+    """
+
+    if execute:
+      if not function.var.isFunction():
+        errorMsg = "Expecting '"
+        errorMsg = errorMsg + function.name + "' to be a function"
+        raise CScriptException(errorMsg)
+      self.l.match(ord('('))
+      # create a new symbol table entry for execution of this function
+      functionRoot = CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_FUNCTION)
+      if parent:
+        functionRoot.addChildNoDup("this", parent)
+      # grab in all parameters
+      v = function.var.firstChild
+      while v:
+        value = self.base(execute)
+        if execute:
+          if value.var.isBasic():
+            # pass by value
+            functionRoot.addChild(v.name, value.var.deepCopy())
+          else:
+            # pass by reference
+            functionRoot.addChild(v.name, value.var)
+        CLEAN(value)
+        if self.l.tk!=ord(')'): self.l.match(',')
+        v = v.nextSibling
+      self.l.match(ord(')'))
+      # setup a return variable
+      returnVar = None
+      # execute function!
+      # add the function's execute space to the symbol table so we can recurse
+      returnVarLink = functionRoot.addChild(TINYJS_RETURN_VAR)
+      self.scopes.append(functionRoot)
+      if TINYJS_CALL_STACK:
+        self.call_stack.append(function.name + " from " + self.l.getPosition())
+
+      if function.var.isNative():
+        ASSERT(function.var.jsCallback)
+        function.var.jsCallback(functionRoot, function.var.jsCallbackUserData)
+      else:
+        # we just want to execute the block, but something could
+        # have messed up and left us with the wrong ScriptLex, so
+        # we want to be careful here...
+        exception = 0
+        oldLex = self.l
+        newLex = CScriptLex(function.var.getString())
+        self.l = newLex
+        try:
+          self.block(execute)
+          # because return will probably have called this, and set execute to false
+          execute = True
+        except CScriptException as e:
+          exception = e
+        del newLex
+        self.l = oldLex
+
+        if exception:
+          raise exception
+        if  TINYJS_CALL_STACK:
+          if not self.call_stack: self.call_stack.pop(-1)
+      self.scopes.pop(-1)
+      # get the real return var before we remove it from our function
+      returnVar = CScriptVarLink(returnVarLink.var)
+      functionRoot.removeLink(returnVarLink)
+      del functionRoot
+      if returnVar:
+        return returnVar
+      else:
+        return CScriptVarLink(CScriptVar())
+    else:
+      # function, but not executing - just parse args and be done
+      self.l.match(ord('('))
+      while self.l.tk != ord(')'):
+        value = self.base(execute)
+        CLEAN(value)
+        if self.l.tk!=ord(')'): self.l.match(ord(','))
+      self.l.match(ord(')'))
+      if self.l.tk == ord('{') : # TODO: why is this here?
+        self.block(execute)
+      # function will be a blank scriptvarlink if we're not executing,
+      # so just return it rather than an alloc/free
+      return function
 
   def factor(self, execute):
-    pass
+    if self.l.tk==ord('('):
+      self.l.match(ord('('))
+      a = self.base(execute)
+      self.l.match(ord(')'))
+      return a
+    if self.l.tk==LEX_TYPES.LEX_R_TRUE:
+      self.l.match(LEX_TYPES.LEX_R_TRUE)
+      return CScriptVarLink(CScriptVar(1))
+    if self.l.tk==LEX_TYPES.LEX_R_FALSE:
+      self.l.match(LEX_TYPES.LEX_R_FALSE)
+      return CScriptVarLink(CScriptVar(0))
+    if self.l.tk==LEX_TYPES.LEX_R_NULL:
+      self.l.match(LEX_TYPES.LEX_R_NULL)
+      return CScriptVarLink(CScriptVar(TINYJS_BLANK_DATA,SCRIPTVAR_FLAGS.SCRIPTVAR_NULL))
+    if self.l.tk==LEX_TYPES.LEX_R_UNDEFINED:
+      self.l.match(LEX_TYPES.LEX_R_UNDEFINED)
+      return CScriptVarLink(CScriptVar(TINYJS_BLANK_DATA,SCRIPTVAR_FLAGS.SCRIPTVAR_UNDEFINED))
+    if self.l.tk==LEX_TYPES.LEX_ID:
+      a = self.findInScopes(l.tkStr) if execute else CScriptVarLink(CScriptVar())
+      # printf("0x%08X for %s at %s\n", (unsigned int)a, l->tkStr.c_str(), l->getPosition().c_str());
+      # The parent if we're executing a method call
+      parent = 0
+
+      if execute and not a:
+        # Variable doesn't exist! JavaScript says we should create it
+        # (we won't add it here. This is done in the assignment operator)
+        a = CScriptVarLink(CScriptVar(), self.l.tkStr)
+      self.l.match(LEX_TYPES.LEX_ID)
+      while self.l.tk==ord('(') or self.l.tk==ord('.') or self.l.tk==ord('['):
+        if self.l.tk==ord('('):  # ------------------------------------- Function Call
+          a = self.functionCall(execute, a, parent)
+        elif self.l.tk == ord('.'): # ------------------------------------- Record Access
+          self.l.match(ord('.'))
+          if execute:
+            name = self.l.tkStr
+            child = a.var.findChild(name)
+            if not child: child = self.findInParentClasses(a.var, name)
+            if not child:
+              # if we haven't found this defined yet, use the built-in
+              #  'length' properly
+              if a.var.isArray() and name == "length":
+                l = a.var.getArrayLength()
+                child = CScriptVarLink(CScriptVar(l))
+              elif a.var.isString() and name == "length":
+                l = len(a.var.getString())
+                child = CScriptVarLink(CScriptVar(l))
+              else:
+                child = a.var.addChild(name)
+            parent = a.var
+            a = child
+          self.l.match(LEX_TYPES.LEX_ID)
+        elif self.l.tk == ord('['): # ------------------------------------- Array Access
+          self.l.match(ord('['))
+          index = self.base(execute)
+          self.l.match(ord(']'))
+          if execute:
+            child = a.var.findChildOrCreate(index.var.getString())
+            parent = a.var
+            a = child
+          CLEAN(index);
+        else: ASSERT(0)
+      return a
+    if self.l.tk==LEX_TYPES.LEX_INT or self.l.tk==LEX_TYPES.LEX_FLOAT:
+      a = CScriptVar(self.l.tkStr,
+          (SCRIPTVAR_FLAGS.SCRIPTVAR_INTEGER if (self.l.tk==LEX_TYPES.LEX_INT) else SCRIPTVAR_FLAGS.SCRIPTVAR_DOUBLE))
+      self.l.match(self.l.tk)
+      return CScriptVarLink(a)
+    if self.l.tk==LEX_TYPES.LEX_STR:
+      a = CScriptVar(self.l.tkStr, SCRIPTVAR_FLAGS.SCRIPTVAR_STRING)
+      self.l.match(LEX_TYPES.LEX_STR)
+      return CScriptVarLink(a)
+    if self.l.tk==ord('{'):
+      contents = CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT)
+      # JSON-style object definition
+      self.l.match(ord('{'))
+      while self.l.tk != ord('}'):
+        id = self.l.tkStr
+        # we only allow strings or IDs on the left hand side of an initialisation
+        if self.l.tk==LEX_TYPES.LEX_STR: self.l.match(LEX_TYPES.LEX_STR)
+        else: self.l.match(LEX_TYPES.LEX_ID)
+        self.l.match(ord(':'))
+        if execute:
+          a = self.base(execute)
+          contents.addChild(id, a.var)
+          CLEAN(a)
+        # no need to clean here, as it will definitely be used
+        if self.l.tk != ord('}'): self.l.match(ord(','))
+
+      self.l.match(ord('}'))
+      return CScriptVarLink(contents)
+    if self.l.tk==ord('['):
+      contents = CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_ARRAY)
+      # JSON-style array
+      self.l.match(ord('['))
+      idx = 0
+      while self.l.tk != ord(']'):
+        if execute:
+          idx_str = '%d' % idx
+
+          a = self.base(execute)
+          contents.addChild(idx_str, a.var)
+          CLEAN(a)
+        # no need to clean here, as it will definitely be used
+        if self.l.tk != ord(']'): self.l.match(ord(','))
+        idx+=1
+      self.l.match(ord(']'))
+      return CScriptVarLink(contents)
+    if self.l.tk==LEX_TYPES.LEX_R_FUNCTION:
+      funcVar = self.parseFunctionDefinition()
+      if funcVar.name != TINYJS_TEMP_NAME:
+        TRACE("Functions not defined at statement-level are not meant to have a name")
+      return funcVar
+    if self.l.tk==LEX_TYPES.LEX_R_NEW:
+      # new -> create a new object
+      self.l.match(LEX_TYPES.LEX_R_NEW)
+      className = self.l.tkStr
+      if execute:
+        objClassOrFunc = self.findInScopes(className)
+        if not objClassOrFunc:
+          TRACE("%s is not a valid class name" % className)
+          return CScriptVarLink(CScriptVar())
+        self.l.match(LEX_TYPES.LEX_ID)
+        obj = CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT)
+        objLink = CScriptVarLink(obj)
+        if objClassOrFunc.var.isFunction():
+          CLEAN(self.functionCall(execute, objClassOrFunc, obj))
+        else:
+          obj.addChild(TINYJS_PROTOTYPE_CLASS, objClassOrFunc.var)
+          if self.l.tk == ord('('):
+            self.l.match(ord('('))
+            self.l.match(ord(')'))
+        return objLink
+      else:
+        self.l.match(LEX_TYPES.LEX_ID)
+        if self.l.tk == ord('('):
+          self.l.match(ord('('))
+          self.l.match(ord(')'))
+    # Nothing we can do here... just hope it's the end...
+    self.l.match(LEX_TYPES.LEX_EOF)
+    return 0
 
   def unary(self, execute):
-    pass
+    if self.l.tk==ord('!'):
+      self.l.match(ord('!')) # // binary not
+      a = self.factor(execute)
+      if execute:
+        zero = CScriptVar(0)
+        res = a.var.mathsOp(zero, LEX_TYPES.LEX_EQUAL)
+        CREATE_LINK(a, res)
+    else:
+      a = self.factor(execute)
+    return a
 
   def term(self, execute):
-    pass
+    a = self.unary(execute)
+    while self.l.tk==ord('*') or self.l.tk==ord('/') or self.l.tk==ord('%'):
+      op = self.l.tk
+      self.l.match(self.l.tk)
+      b = self.unary(execute)
+      if execute:
+        res = a.var.mathsOp(b.var, op)
+        CREATE_LINK(a, res)
+      CLEAN(b)
+    return a
 
   def expression(self, execute):
-    pass
+    negate = False
+    if self.l.tk==ord('-'):
+        self.l.match(ord('-'))
+        negate = True
+    a = self.term(execute)
+    if negate:
+      zero = CScriptVar(0)
+      res = zero.mathsOp(a.var, ord('-'))
+      CREATE_LINK(a, res)
+
+    while self.l.tk==ord('+') or self.l.tk==ord('-') or\
+      self.l.tk==LEX_TYPES.LEX_PLUSPLUS or self.l.tk==LEX_TYPES.LEX_MINUSMINUS:
+      op = self.l.tk
+      self.l.match(self.l.tk)
+      if op==LEX_TYPES.LEX_PLUSPLUS or op==LEX_TYPES.LEX_MINUSMINUS:
+        if execute:
+          one = CScriptVar(1)
+          res = a.var.mathsOp(one, ord('+') if op==LEX_PLUSPLUS else ord('-'))
+          oldValue = CScriptVarLink(a.var)
+          # in-place add/subtract
+          a.replaceWith(res)
+          CLEAN(a)
+          a = oldValue
+      else:
+        b = self.term(execute)
+        if execute:
+          # not in-place, so just replace
+          res = a.var.mathsOp(b.var, op)
+          CREATE_LINK(a, res)
+        CLEAN(b)
+    return a
 
   def shift(self, execute):
-    pass
+    a = self.expression(execute)
+    if self.l.tk==LEX_TYPES.LEX_LSHIFT or self.l.tk==LEX_TYPES.LEX_RSHIFT or self.l.tk==LEX_TYPES.LEX_RSHIFTUNSIGNED:
+      op = self.l.tk
+      self.l.match(op)
+      b = self.base(execute)
+      shift = b.var.getInt() if execute else 0
+      CLEAN(b)
+      if execute:
+        if op==LEX_TYPES.LEX_LSHIFT: a.var.setInt(a.var.getInt() << shift)
+        if op==LEX_TYPES.LEX_RSHIFT: a.var.setInt(a.var.getInt() >> shift)
+        if op==LEX_TYPES.LEX_RSHIFTUNSIGNED: a.var.setInt(a.var.getInt() >> shift)
+    return a
 
   def condition(self, execute):
-    pass
+    a = self.shift(execute)
+    while self.l.tk==LEX_TYPES.LEX_EQUAL or self.l.tk==LEX_TYPES.LEX_NEQUAL or\
+         self.l.tk==LEX_TYPES.LEX_TYPEEQUAL or self.l.tk==LEX_TYPES.LEX_NTYPEEQUAL or\
+         self.l.tk==LEX_TYPES.LEX_LEQUAL or self.l.tk==LEX_TYPES.LEX_GEQUAL or\
+         self.l.tk==ord('<') or self.l.tk==ord('>'):
+      op = self.l.tk
+      self.l.match(self.l.tk)
+      b = self.shift(execute)
+      if execute:
+        res = a.var.mathsOp(b.var, op)
+        CREATE_LINK(a,res)
+      CLEAN(b)
+    return a
 
   def logic(self, execute):
-    pass
+    a = self.condition(execute)
+    while self.l.tk==ord('&') or self.l.tk==ord('|') or self.l.tk==ord('^') or\
+      self.l.tk==LEX_TYPES.LEX_ANDAND or self.l.tk==LEX_TYPES.LEX_OROR:
+      noexecute = False
+      op = self.l.tk
+      self.l.match(self.l.tk)
+      shortCircuit = False
+      boolean = False
+      # if we have short-circuit ops, then if we know the outcome
+      # we don't bother to execute the other op. Even if not
+      # we need to tell mathsOp it's an & or |
+      if op==LEX_TYPES.LEX_ANDAND:
+        op = ord('&')
+        shortCircuit = not a.var.getBool()
+        boolean = True
+      elif op==LEX_TYPES.LEX_OROR:
+        op = ord('|')
+        shortCircuit = a.var.getBool()
+        boolean = True
+      b = self.condition(noexecute if shortCircuit else execute)
+      if execute and not shortCircuit:
+        if boolean:
+          newa = CScriptVar(a.var.getBool())
+          newb = CScriptVar(b.var.getBool())
+          CREATE_LINK(a, newa)
+          CREATE_LINK(b, newb)
+        res = a.var.mathsOp(b.var, op)
+        CREATE_LINK(a, res)
+      CLEAN(b)
+    return a
 
   def ternary(self, execute):
-    pass
+    lhs = self.logic(execute)
+    noexec = False
+    if self.l.tk==ord('?'):
+      self.l.match(ord('?'))
+      if not execute:
+        CLEAN(lhs)
+        CLEAN(base(noexec))
+        self.l.match(':')
+        CLEAN(base(noexec))
+      else:
+        first = lhs.var.getBool()
+        CLEAN(lhs)
+        if first:
+          lhs = self.base(execute)
+          self.l.match(ord(':'))
+          CLEAN(base(noexec))
+        else:
+          CLEAN(self.base(noexec))
+          self.l.match(ord(':'))
+          lhs = self.base(execute)
+
+    return lhs
 
   def base(self, execute):
-    pass
+    lhs = self.ternary(execute)
+    if self.l.tk==ord('=') or self.l.tk==LEX_TYPES.LEX_PLUSEQUAL or self.l.tk==LEX_TYPES.LEX_MINUSEQUAL:
+      # If we're assigning to this and we don't have a parent,
+      # add it to the symbol table root as per JavaScript. */
+      if execute and not lhs.owned:
+        if len(lhs.name)>0:
+          realLhs = self.root.addChildNoDup(lhs.name, lhs.var)
+          CLEAN(lhs)
+          lhs = realLhs
+        else:
+          TRACE("Trying to assign to an un-named type\n")
+
+      op = self.l.tk
+      self.l.match(self.l.tk)
+      rhs = self.base(execute)
+      if execute:
+        if op==ord('='):
+          lhs.replaceWith(rhs)
+        elif op==LEX_TYPES.LEX_PLUSEQUAL:
+          res = lhs.var.mathsOp(rhs.var, ord('+'))
+          lhs.replaceWith(res)
+        elif op==LEX_TYPES.LEX_MINUSEQUAL:
+          res = lhs.var.mathsOp(rhs.var, ord('-'))
+          lhs.replaceWith(res)
+        else: ASSERT(0)
+      
+      CLEAN(rhs)
+    return lhs
 
   def block(self, execute):
-    pass
+    self.l.match(ord('{'))
+    if execute:
+      while self.l.tk and self.l.tk!=ord('}'):
+        self.statement(execute)
+      self.l.match(ord('}'))
+    else:
+      # fast skip of blocks
+      brackets = 1
+      while self.l.tk and brackets:
+        if self.l.tk == ord('{'): brackets+=1
+        if self.l.tk == ord('}'): brackets-=1
+        self.l.match(l.tk)
 
   def statement(self, execute):
-    pass
+    if (self.l.tk==LEX_TYPES.LEX_ID or
+        self.l.tk==LEX_TYPES.LEX_INT or
+        self.l.tk==LEX_TYPES.LEX_FLOAT or
+        self.l.tk==LEX_TYPES.LEX_STR or
+        self.l.tk==ord('-')):
+      # Execute a simple statement that only contains basic arithmetic...
+      CLEAN(self.base(execute))
+      self.l.match(ord(';'))
+    elif self.l.tk==ord('{'):
+      # A block of code
+      self.block(execute)
+    elif self.l.tk==ord(';'):
+      # Empty statement - to allow things like ;;;
+      self.l.match(';')
+    elif self.l.tk==LEX_TYPES.LEX_R_VAR:
+      # variable creation. TODO - we need a better way of parsing the left
+      # hand side. Maybe just have a flag called can_create_var that we
+      # set and then we parse as if we're doing a normal equals.
+      self.l.match(LEX_TYPES.LEX_R_VAR)
+      while self.l.tk != ord(';'):
+        a = 0
+        if execute:
+          a = self.scopes[-1].findChildOrCreate(self.l.tkStr)
+        self.l.match(LEX_TYPES.LEX_ID)
+        # now do stuff defined with dots
+        while self.l.tk == ord('.'):
+          self.l.match(ord('.'))
+          if execute:
+            lastA = a
+            a = lastA.var.findChildOrCreate(self.l.tkStr)
+          self.l.match(LEX_TYPES.LEX_ID)
+        # sort out initialiser
+        if self.l.tk == ord('='):
+          self.l.match(ord('='))
+          var = self.base(execute)
+          if execute:
+            a.replaceWith(var)
+          CLEAN(var)
+        if self.l.tk != ord(';'):
+          self.l.match(',')
+      self.l.match(ord(';'))
+    elif self.l.tk==LEX_TYPES.LEX_R_IF:
+        self.l.match(LEX_TYPES.LEX_R_IF)
+        self.l.match(ord('('))
+        var = self.base(execute)
+        self.l.match(ord(')'))
+        cond = execute and var.var.getBool()
+        CLEAN(var)
+        noexecute = False # because we need to be abl;e to write to it
+        self.statement(execute if cond else noexecute)
+        if self.l.tk==LEX_TYPES.LEX_R_ELSE:
+          self.l.match(LEX_TYPES.LEX_R_ELSE)
+          self.statement(noexecute if cond else execute)
+    elif self.l.tk==LEX_TYPES.LEX_R_WHILE:
+      # We do repetition by pulling out the string representing our statement
+      # there's definitely some opportunity for optimisation here
+      self.l.match(LEX_TYPES.LEX_R_WHILE);
+      self.l.match(ord('('))
+      whileCondStart = self.l.tokenStart
+      noexecute = False
+      cond = self.base(execute)
+      loopCond = execute and cond.var.getBool()
+      CLEAN(cond)
+      whileCond = self.l.getSubLex(whileCondStart)
+      self.l.match(ord(')'))
+      whileBodyStart = self.l.tokenStart
+      self.statement(execute if loopCond else noexecute)
+      whileBody = self.l.getSubLex(whileBodyStart)
+      oldLex = self.l
+      loopCount = TINYJS_LOOP_MAX_ITERATIONS
+      while loopCond and loopCount:
+        whileCond.reset()
+        self.l = whileCond
+        cond = self.base(execute)
+        loopCond = execute and cond.var.getBool()
+        CLEAN(cond)
+        if loopCond:
+          whileBody.reset()
+          self.l = whileBody
+          self.statement(execute)
+        loopCount -= 1
+      self.l = oldLex
+      del whileCond
+      del whileBody
+
+      if loopCount<=0:
+          self.root.trace()
+          TRACE("WHILE Loop exceeded %d iterations at %s\n" % (TINYJS_LOOP_MAX_ITERATIONS, self.l.getPosition()))
+          raise CScriptException("LOOP_ERROR")
+    elif self.l.tk==LEX_TYPES.LEX_R_FOR:
+      self.l.match(LEX_TYPES.LEX_R_FOR)
+      self.l.match(ord('('))
+      self.statement(execute) # initialisation
+      #l.match(';')
+      forCondStart = self.l.tokenStart
+      noexecute = False
+      cond = self.base(execute) # condition
+      loopCond = execute and cond.var.getBool()
+      CLEAN(cond)
+      forCond = self.l.getSubLex(forCondStart)
+      self.l.match(ord(';'))
+      forIterStart = self.l.tokenStart
+      CLEAN(base(noexecute)) # iterator
+      forIter = self.l.getSubLex(forIterStart)
+      self.l.match(ord(')'))
+      forBodyStart = self.l.tokenStart
+      self.statement(execute if loopCond else noexecute)
+      forBody = self.l.getSubLex(forBodyStart)
+      oldLex = self.l
+      if loopCond:
+        forIter.reset()
+        self.l = forIter
+        CLEAN(base(execute))
+      loopCount = TINYJS_LOOP_MAX_ITERATIONS
+      while execute and loopCond and loopCount:
+        forCond.reset()
+        self.l = forCond
+        cond = self.base(execute)
+        loopCond = cond.var.getBool()
+        CLEAN(cond)
+        if execute and loopCond:
+          forBody.reset()
+          self.l = forBody
+          self.statement(execute)
+        if execute and loopCond:
+          forIter.reset()
+          self.l = forIter
+          CLEAN(self.base(execute))
+        loopCount -= 1
+      self.l = oldLex
+      del forCond
+      del forIter
+      del forBody
+      if loopCount<=0:
+        self.root.trace()
+        TRACE("FOR Loop exceeded %d iterations at %s" % (TINYJS_LOOP_MAX_ITERATIONS, self.l.getPosition()))
+        raise CScriptException("LOOP_ERROR")
+    elif self.l.tk==LEX_TYPES.LEX_R_RETURN:
+      self.l.match(LEX_TYPES.LEX_R_RETURN)
+      result = 0
+      if self.l.tk != ord(';'):
+        result = self.base(execute)
+      if execute:
+        resultVar = self.scopes[-1].findChild(TINYJS_RETURN_VAR)
+        if resultVar:
+          resultVar.replaceWith(result)
+        else:
+          TRACE("RETURN statement, but not in a function.")
+        execute = False
+      CLEAN(result)
+      self.l.match(ord(';'))
+    elif self.l.tk==LEX_TYPES.LEX_R_FUNCTION:
+      funcVar = self.parseFunctionDefinition()
+      if execute:
+        if funcVar.name == TINYJS_TEMP_NAME:
+          TRACE("Functions defined at statement-level are meant to have a name")
+        else:
+          self.scopes[-1].addChildNoDup(funcVar.name, funcVar.var)
+      CLEAN(funcVar)
+    else: self.l.match(LEX_TYPES.LEX_EOF)
 
   # parsing utility functions
   def parseFunctionDefinition(self):
-    pass
+    # actually parse a function...
+    self.l.match(LEX_TYPES.LEX_R_FUNCTION)
+    funcName = TINYJS_TEMP_NAME
+    # we can have functions without names
+    if self.l.tk==LEX_TYPES.LEX_ID:
+      funcName = self.l.tkStr
+      self.l.match(LEX_TYPES.LEX_ID)
+    funcVar = CScriptVarLink(CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_FUNCTION), funcName)
+    self.parseFunctionArguments(funcVar.var)
+    funcBegin = self.l.tokenStart
+    noexecute = False
+    self.block(noexecute)
+    funcVar.var.data = self.l.getSubString(funcBegin)
+    return funcVar
 
   def parseFunctionArguments(self, funcVar):
-    pass
+    self.l.match(ord('('))
+    while self.l.tk!=ord(')'):
+      funcVar.addChildNoDup(self.l.tkStr)
+      l.match(LEX_TYPES.LEX_ID)
+      if self.l.tk!=ord(')'): self.l.match(ord(','))
+    l.match(ord(')'))
 
   # Finds a child, looking recursively up the scopes
   def findInScopes(self, childName):
-    pass
+    for s in xrange(len(self.scopes)-1, -1, -1):
+      v = self.scopes[s].findChild(childName)
+      if v: return v
+    return None
 
   # Look up in any parent classes of the given object
-  def findInParentClasses(object, name):
-    pass
+  def findInParentClasses(self, object, name):
+    # Look for links to actual parent classes
+    parentClass = object.findChild(TINYJS_PROTOTYPE_CLASS)
+    while parentClass:
+      implementation = parentClass.var.findChild(name)
+      if implementation: return implementation
+      parentClass = parentClass.var.findChild(TINYJS_PROTOTYPE_CLASS)
+    # else fake it for strings and finally objects
+    if object.isString():
+      implementation = self.stringClass.findChild(name)
+      if implementation: return implementation
+    if object.isArray():
+      implementation = self.arrayClass.findChild(name)
+      if implementation: return implementation
+    implementation = self.objectClass.findChild(name)
+    if implementation: return implementation
+
+    return 0;
 

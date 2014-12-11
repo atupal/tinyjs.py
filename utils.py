@@ -14,6 +14,17 @@ from StringIO import StringIO
 def TRACE(x):
   print x
 
+def CLEAN(x):
+  __v = x
+  if __v and not __v.owned:
+    del __v
+
+def CREATE_LINK(LINK, VAR):
+  if not LINK or LINK.owned:
+    LINK = CScriptVarLink(VAR)
+  else:
+    LINK.replaceWith(VAR)
+
 def ASSERT(x):
   assert(x)
 
