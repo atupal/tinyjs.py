@@ -251,9 +251,9 @@ class CScriptLex(object):
 
     lastCharIdx = self.tokenLastEnd+1
     if lastCharIdx < self.dataEnd:
-      return CScriptLex('', self, lastPosition, lastCharIdx)
+      return CScriptLex(self, lastPosition, lastCharIdx)
     else:
-      return CScriptLex('', self, lastPosition, self.dataEnd)
+      return CScriptLex(self, lastPosition, self.dataEnd)
 
   def getPosition(self, pos):
     """ Return a string representing the position in lines and columns of the character pos given
@@ -490,11 +490,13 @@ class CScriptVarLink(object):
   # public
   def __init__(self, *args):
     self.__initAllVars__()
-    if len(args) == 2 and\
-        isinstance(args[0], CScriptVar) and\
-        isinstance(args[1], basestring):
+    if len(args) >= 1 and\
+        isinstance(args[0], CScriptVar):
+      if len(args) == 2 and isinstance(args[1], basestring):
+        name = args[1]
+      else:
+        name = TINYJS_TEMP_NAME
       var = args[0]
-      name = args[1]
       self.name = name
       self.nextSibling = 0
       self.prevSibling = 0
@@ -569,6 +571,7 @@ class CScriptVar(object):
         isinstance(args[1], (int, long)):
       varData = args[0]
       varFlags = args[1]
+      self.refs = 0
       self.init()
       self.flags = varFlags
       if varFlags & SCRIPTVAR_FLAGS.SCRIPTVAR_INTEGER:
@@ -600,7 +603,7 @@ class CScriptVar(object):
     self.findChildOrCreate(TINYJS_RETURN_VAR).replaceWith(var)
 
   def getParameter(self, name):
-    return findChildOrCreate(name).var
+    return self.findChildOrCreate(name).var
 
   def findChild(self, childName):
     v = self.firstChild
@@ -610,7 +613,7 @@ class CScriptVar(object):
       v = v.nextSibling
     return 0
 
-  def findChildOrCreate(childName, varFlags=SCRIPTVAR_FLAGS.SCRIPTVAR_UNDEFINED):
+  def findChildOrCreate(self, childName, varFlags=SCRIPTVAR_FLAGS.SCRIPTVAR_UNDEFINED):
     l = self.findChild(childName)
     if l: return l
 
@@ -651,7 +654,7 @@ class CScriptVar(object):
     if v:
       v.replaceWith(child)
     else:
-      v = addChild(childName, child)
+      v = self.addChild(childName, child)
 
     return v
 
@@ -752,11 +755,11 @@ class CScriptVar(object):
     if self.isInt():
       buffer = '%d' % self.intData
       self.data = buffer
-      return data
+      return self.data
     if self.isDouble():
       buffer = '%f' % self.doubleData
       self.data = buffer
-      return data
+      return self.data
     if self.isNull(): return s_null
     if self.isUndefined(): return s_undefined
     # are we just a string here?
@@ -807,7 +810,7 @@ class CScriptVar(object):
   def setUndefined(self):
     # name sure it's not still a number or integer
     self.flags = (self.flags&~SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_FLAGS.SCRIPTVAR_UNDEFINED
-    self.data = TINYJS_BLANK_DATAk
+    self.data = TINYJS_BLANK_DATA
     self.intData = 0
     self.doubleData = 0
     self.removeAllChildren()
@@ -887,34 +890,34 @@ class CScriptVar(object):
         # use ints
         da = a.getInt()
         db = b.getInt()
-        if op == '+': return CScriptVar(da+db)
-        elif op == '-': return CScriptVar(da-db)
-        elif op == '*': return CScriptVar(da*db)
-        elif op == '/': return CScriptVar(da/db)
-        elif op == '&': return CScriptVar(da&db)
-        elif op == '|': return CScriptVar(da|db)
-        elif op == '^': return CScriptVar(da^db)
-        elif op == '%': return CScriptVar(da%db)
+        if op == ord('+'): return CScriptVar(da+db)
+        elif op == ord('-'): return CScriptVar(da-db)
+        elif op == ord('*'): return CScriptVar(da*db)
+        elif op == ord('/'): return CScriptVar(da/db)
+        elif op == ord('&'): return CScriptVar(da&db)
+        elif op == ord('|'): return CScriptVar(da|db)
+        elif op == ord('^'): return CScriptVar(da^db)
+        elif op == ord('%'): return CScriptVar(da%db)
         elif op == LEX_TYPES.LEX_EQUAL:     return CScriptVar(da==db)
         elif op == LEX_TYPES.LEX_NEQUAL:    return CScriptVar(da!=db)
-        elif op == '<':     return CScriptVar(da<db)
+        elif op == ord('<'):     return CScriptVar(da<db)
         elif op == LEX_TYPES.LEX_LEQUAL:    return CScriptVar(da<=db)
-        elif op == '>':     return CScriptVar(da>db)
+        elif op == ord('>'):     return CScriptVar(da>db)
         elif op == LEX_TYPES.LEX_GEQUAL:    return CScriptVar(da>=db)
         else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the Int datatype")
       else:
         # use doubles
         da = a.getDouble()
         db = b.getDouble()
-        if op == '+': return CScriptVar(da+db)
-        elif op == '-': return CScriptVar(da-db)
-        elif op == '*': return CScriptVar(da*db)
-        elif op == '/': return CScriptVar(da/db)
+        if op == ord('+'): return CScriptVar(da+db)
+        elif op == ord('-'): return CScriptVar(da-db)
+        elif op == ord('*'): return CScriptVar(da*db)
+        elif op == ord('/'): return CScriptVar(da/db)
         elif op == LEX_TYPES.LEX_EQUAL:     return CScriptVar(da==db)
         elif op == LEX_TYPES.LEX_NEQUAL:    return CScriptVar(da!=db)
-        elif op == '<':     return CScriptVar(da<db)
+        elif op == ord('<'):     return CScriptVar(da<db)
         elif op == LEX_TYPES.LEX_LEQUAL:    return CScriptVar(da<=db)
-        elif op == '>':     return CScriptVar(da>db)
+        elif op == ord('>'):     return CScriptVar(da>db)
         elif op == LEX_TYPES.LEX_GEQUAL:    return CScriptVar(da>=db)
         else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the Double datatype")
     elif a.isArray():
@@ -931,12 +934,12 @@ class CScriptVar(object):
        da = a.getString();
        db = b.getString();
        # use strings
-       if op == '+':           return CScriptVar(da+db, SCRIPTVAR_FLAGS.SCRIPTVAR_STRING)
+       if op == ord('+'):           return CScriptVar(da+db, SCRIPTVAR_FLAGS.SCRIPTVAR_STRING)
        elif op == LEX_TYPES.LEX_EQUAL:     return CScriptVar(da==db)
        elif op == LEX_TYPES.LEX_NEQUAL:    return CScriptVar(da!=db)
-       elif op == '<':     return CScriptVar(da<db)
+       elif op == ord('<'):     return CScriptVar(da<db)
        elif op == LEX_TYPES.LEX_LEQUAL:    return CScriptVar(da<=db)
-       elif op == '>':     return CScriptVar(da>db)
+       elif op == ord('>'):     return CScriptVar(da>db)
        elif op == LEX_TYPES.LEX_GEQUAL:    return CScriptVar(da>=db)
        else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the string datatype");
     ASSERT(0)
@@ -951,7 +954,6 @@ class CScriptVar(object):
       # copy children of 'val'
       child = val.firstChild
       while child:
-        copied
         # don't copy the 'parent' object...
         if child.name != TINYJS_PROTOTYPE_CLASS:
           copied = child.var.deepCopy()
@@ -971,7 +973,6 @@ class CScriptVar(object):
     # copy children
     child = self.firstChild
     while child:
-      copied
       # don't copy the 'parent' object...
       if child.name != TINYJS_PROTOTYPE_CLASS:
         copied = child.var.deepCopy()
@@ -1083,68 +1084,112 @@ class CScriptVar(object):
     self.doubleData = val.doubleData
     self.flags = (self.flags & ~SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK) | (val.flags & SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK)
 
+
 class CTinyJS(object):
+
+  def __initAllVars__(self):
+    self.root = None
+    self.l = None
+    self.scopes = None
+    self.call_stack = None
+    self.stringClass = None
+    self.objectClass = None
+    self.arrayClass = None
+
   # public:
-  def __inif__(self):
-    pass
+  def __init__(self, *args):
+    self.__initAllVars__()
+    self.l = CScriptVar(TINYJS_BLANK_DATAk, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT).ref()
+    # Add built-in classes
+    self.stringClass = (CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT)).ref()
+    self.arrayClass = (CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT)).ref()
+    self.objectClass = (CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT)).ref()
+    self.root.addChild("String", self.stringClass)
+    self.root.addChild("Array", self.arrayClass)
+    self.root.addChild("Object", self.objectClass)
+
+  def __del__(self):
+    ASSERT(not self.l)
+    self.scopes = []
+    self.stringClass.unref()
+    self.arrayClass.unref()
+    se.fobjectClass.unref()
+    self.root.unref()
 
   def execute(self, code):
-    pass
-  """
-  /** Evaluate the given code and return a link to a javascript object,
-   * useful for (dangerous) JSON parsing. If nothing to return, will return
-   * 'undefined' variable type. CScriptVarLink is returned as this will
-   * automatically unref the result as it goes out of scope. If you want to
-   * keep it, you must use ref() and unref() */
-  """
+    """ Evaluate the given code and return a link to a javascript object,
+        useful for (dangerous) JSON parsing. If nothing to return, will return
+        'undefined' variable type. CScriptVarLink is returned as this will
+        automatically unref the result as it goes out of scope. If you want to
+        keep it, you must use ref() and unref() */
+    """
+
+    oldLex = self.l
+    oldScopes = self.scopes
+    self.l = CScriptLex(code)
+    if TINYJS_CALL_STACK:
+      self.call_stack.clear()
+    self.scopes = []
+    self.scopes.append(self.root)
+    try:
+      execute = True
+      while self.l.tk: self.statement(execute)
+    except CScriptException as e:
+        msg = "Error %s" % str(e)
+        if  TINYJS_CALL_STACK:
+          for i in xrange(len(self.call_stack)-1, -1, -1):
+            msg = '%s\n%d: %s' % (msg, i, self.call_stack[i])
+        msg = '%s at %s' % (msg, self.l.getPosition())
+        del self.l
+        self.l = oldLex
+
+        raise CScriptException(msg)
+    del self.l
+    self.l = oldLex
+    self.scopes = oldScopes
 
   def evaluateComplex(self, code):
-    pass
-  """
-  /** Evaluate the given code and return a string. If nothing to return, will return
-   * 'undefined' */
-  """
+    """  Evaluate the given code and return a string. If nothing to return, will return
+         'undefined' */
+    """
 
   def evaluate(self, code):
-    pass
-  """
-  /// add a native function to be called from TinyJS
-  /** example:
-     \code
-         void scRandInt(CScriptVar *c, void *userdata) { ... }
-         tinyJS->addNative("function randInt(min, max)", scRandInt, 0);
-     \endcode
+    """ add a native function to be called from TinyJS
+        example:
+           \code
+               void scRandInt(CScriptVar *c, void *userdata) { ... }
+               tinyJS->addNative("function randInt(min, max)", scRandInt, 0);
+           \endcode
 
-     or
+           or
 
-     \code
-         void scSubstring(CScriptVar *c, void *userdata) { ... }
-         tinyJS->addNative("function String.substring(lo, hi)", scSubstring, 0);
-     \endcode
-  */
-  """
+           \code
+               void scSubstring(CScriptVar *c, void *userdata) { ... }
+               tinyJS->addNative("function String.substring(lo, hi)", scSubstring, 0);
+           \endcode
+    """
 
   def addNative(self, funcDesc, ptr, userdata):
     pass
 
-  # /// Get the given variable specified by a path (var1.var2.etc), or return 0
+  # Get the given variable specified by a path (var1.var2.etc), or return 0
   def getScriptVariable(self, path):
     pass
 
-  # /// Get the value of the given variable, or return 0
+  # Get the value of the given variable, or return 0
   def getVariable(self, path):
     pass
 
-  # /// set the value of the given variable, return trur if it exists and gets set
+  # set the value of the given variable, return trur if it exists and gets set
   def setVariable(self, path, varData):
     pass
 
-  # /// Send all variables to stdout
+  # Send all variables to stdout
   def trace(self):
-    pass
+    self.root.trace()
 
   # private:
-  # // parsing - in order of precedence
+  # parsing - in order of precedence
   def functionCall(self, execute, function, parent):
     pass
 
@@ -1181,18 +1226,18 @@ class CTinyJS(object):
   def statement(self, execute):
     pass
 
-  # // parsing utility functions
+  # parsing utility functions
   def parseFunctionDefinition(self):
     pass
 
   def parseFunctionArguments(self, funcVar):
     pass
 
+  # Finds a child, looking recursively up the scopes
   def findInScopes(self, childName):
-    # ///< Finds a child, looking recursively up the scopes
     pass
 
-  # /// Look up in any parent classes of the given object
+  # Look up in any parent classes of the given object
   def findInParentClasses(object, name):
     pass
 
