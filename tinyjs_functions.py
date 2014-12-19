@@ -40,7 +40,7 @@ def scStringSubstring(c, *args):
   lo = c.getParameter("lo").getInt()
   hi = c.getParameter("hi").getInt()
 
-  c.getReturnVar().setString(str[lo:l])
+  c.getReturnVar().setString(str[lo:hi])
 
 def scStringCharAt(c, *args):
   str = c.getParameter("this").getString()
@@ -88,8 +88,9 @@ def scIntegerValueOf(c, *args):
 
 def scJSONStringify(c, *args):
   # TODO std::ostringstream result;
-  c.getParameter("obj").getJSON(result);
-  c.getReturnVar().setString(result.str())
+  result = ''
+  result = c.getParameter("obj").getJSON(result);
+  c.getReturnVar().setString(result)
 
 def scExec(c, data):
   tinyJS = data

@@ -29,20 +29,28 @@ def ASSERT(x):
   assert(x)
 
 def isWhitespace(ch):
+  if isinstance(ch, int):
+    ch = chr(ch)
   return ch.isspace()
 
 def isNumber(str):
   return str.isdigit()
 
 def isNumeric(ch):
+  if isinstance(ch, int):
+    ch = chr(ch)
   return isNumber(ch)
 
 def isHexadecimal(ch):
+  if isinstance(ch, int):
+    ch = chr(ch)
   return (ch >= '0' and ch <= '9') or\
             (ch >= 'a' and ch <= 'f') or\
             (ch >= 'A' and ch <= 'F')
 
 def isAlpha(ch):
+  if isinstance(ch, int):
+    ch = chr(ch)
   return ch.isalpha() or ch == '_'
 
 def isIDString(s):

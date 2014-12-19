@@ -33,8 +33,30 @@ def CLEAN(x):
     del __v
 
 def CREATE_LINK(LINK, VAR):
+  import inspect
+  import re
+  import ast
+  import ctypes
+  stack = inspect.stack()
+  stack_pre = stack[1]
+  function_call_string = ';'.join( stack_pre[4] ).strip('\n')
+  ret = re.search(r'(%s[ ]*\(.*\))' % CREATE_LINK.func_name, function_call_string)
+  striped_function_call_string = ret.group()
+  parser = ast.parse(striped_function_call_string)
+
+  function_actual_args = parser.body[0].value.args
+  first_arg_name = function_actual_args[0].id
+
+  frame = inspect.currentframe()
+
   if not LINK or LINK.owned:
-    LINK = CScriptVarLink(VAR)
+    # LINK = CScriptVarLink(VAR)
+    iter_frame = frame.f_back
+    while iter_frame:
+      if first_arg_name in iter_frame.f_locals:
+        iter_frame.f_locals[first_arg_name] = CScriptVarLink(VAR)
+        ctypes.pythonapi.PyFrame_LocalsToFast(ctypes.py_object(iter_frame), ctypes.c_int(0))
+        break
   else:
     LINK.replaceWith(VAR)
 
@@ -123,7 +145,7 @@ class SCRIPTVAR_FLAGS(object):
 
 TINYJS_RETURN_VAR = "return"
 TINYJS_PROTOTYPE_CLASS = "prototype"
-TINYJS_TEMP_NAME = ""
+TINYJS_TEMP_NAME = "tmp_name"
 TINYJS_BLANK_DATA = ""
 
 class CScriptException(Exception):
@@ -133,6 +155,11 @@ class CScriptException(Exception):
     return repr(self.value)
 
 class CScriptLex(object):
+
+  # for debug:
+  def _dump(self):
+    return vars(self)
+  # end for debug
 
   # all member variables
   def __initAllVars__(self):
@@ -187,7 +214,7 @@ class CScriptLex(object):
 
     if self.tk != expected_tk:
       errorString = StringIO()
-      print >>errorString, 'Got', self.getTokenStr(tk), 'expected' , self.getTokenStr(expected_tk),\
+      print >>errorString, 'Got', self.getTokenStr(self.tk), 'expected' , self.getTokenStr(expected_tk),\
             'at', self.getPosition(self.tokenStart),
       raise CScriptException(errorString.getvalue())
 
@@ -241,7 +268,7 @@ class CScriptLex(object):
     if token == LEX_TYPES.LEX_R_UNDEFINED : return "undefined";
     if token == LEX_TYPES.LEX_R_NEW : return "new";
 
-    return "?[%d]" % token
+    return "?[%d]" % ord(token)
 
   def reset(self):
     """ Reset this lex so we can start again
@@ -281,7 +308,7 @@ class CScriptLex(object):
     else:
       return CScriptLex(self, lastPosition, self.dataEnd)
 
-  def getPosition(self, pos):
+  def getPosition(self, pos=-1):
     """ Return a string representing the position in lines and columns of the character pos given
     """
 
@@ -506,6 +533,11 @@ class CScriptLex(object):
 
 class CScriptVarLink(object):
 
+  # for debug:
+  def _dump(self):
+    return vars(self)
+  # end for debug
+
   def __initAllVars__(self):
     self.name = None
     self.nextSibling = None
@@ -567,6 +599,11 @@ class CScriptVar(object):
   """ Variable class (containing a doubly-linked list of children)
   """
 
+  # for debug:
+  def _dump(self):
+    return vars(self)
+  # end for debug
+
   def __initAllVars__(self):
     self.firstChild = None
     self.lastChild = None
@@ -601,7 +638,12 @@ class CScriptVar(object):
       self.init()
       self.flags = varFlags
       if varFlags & SCRIPTVAR_FLAGS.SCRIPTVAR_INTEGER:
-        self.intData = int(varData)
+        try:
+          self.intData = int(varData)
+          if len(varData) > 1 and varData[0] == '0':
+            self.intData = int(varData, 8)
+        except:
+          self.intData = int(varData, 16)
       elif varFlags & SCRIPTVAR_FLAGS.SCRIPTVAR_DOUBLE:
         self.doubleData = float(varData)
       else:
@@ -614,7 +656,7 @@ class CScriptVar(object):
       self.setDouble(val)
     elif len(args) == 1 and\
         isinstance(args[0], (int, long)):
-      var = args[0]
+      val = args[0]
       self.refs = 0
       self.init()
       self.setInt(val)
@@ -705,7 +747,7 @@ class CScriptVar(object):
       self.firstChild = link.nextSibling
     del link
 
-  def removeAllChildren():
+  def removeAllChildren(self):
     c = self.firstChild
     while c:
       t = c.nextSibling
@@ -739,7 +781,7 @@ class CScriptVar(object):
 
     link = self.firstChild
     while link:
-      if self.isNumber(link.name):
+      if isNumber(link.name):
         val = int(link.name)
         if val > highest: highest = val
       link = link.nextSibling
@@ -856,10 +898,10 @@ class CScriptVar(object):
     return res
 
   def isInt(self):
-    return self.flags&SCRIPTVAR_FLAGS.ORREISCRIPTVAR_INTEGER!=0
+    return self.flags&SCRIPTVAR_FLAGS.SCRIPTVAR_INTEGER!=0
 
   def isDouble(self):
-    return self.flags&SCRIPTVAR_FLAGS.EISCRIPTVAR_DOUBLE!=0
+    return self.flags&SCRIPTVAR_FLAGS.SCRIPTVAR_DOUBLE!=0
 
   def isString(self):
     return self.flags&SCRIPTVAR_FLAGS.SCRIPTVAR_STRING!=0
@@ -882,7 +924,7 @@ class CScriptVar(object):
     return self.flags & SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK == SCRIPTVAR_FLAGS.SCRIPTVAR_UNDEFINED
 
   def isNull(self):
-    return self.flags & ASSCRIPTVAR_NULL !=0
+    return self.flags & SCRIPTVAR_FLAGS.SCRIPTVAR_NULL !=0
 
   def isBasic(self):
     return self.firstChild==0 # ///< Is this *not* an array/object/etc
@@ -916,34 +958,34 @@ class CScriptVar(object):
         # use ints
         da = a.getInt()
         db = b.getInt()
-        if op == ord('+'): return CScriptVar(da+db)
-        elif op == ord('-'): return CScriptVar(da-db)
-        elif op == ord('*'): return CScriptVar(da*db)
-        elif op == ord('/'): return CScriptVar(da/db)
-        elif op == ord('&'): return CScriptVar(da&db)
-        elif op == ord('|'): return CScriptVar(da|db)
-        elif op == ord('^'): return CScriptVar(da^db)
-        elif op == ord('%'): return CScriptVar(da%db)
+        if op == '+': return CScriptVar(da+db)
+        elif op == '-': return CScriptVar(da-db)
+        elif op == '*': return CScriptVar(da*db)
+        elif op == '/': return CScriptVar(da/db)
+        elif op == '&': return CScriptVar(da&db)
+        elif op == '|': return CScriptVar(da|db)
+        elif op == '^': return CScriptVar(da^db)
+        elif op == '%': return CScriptVar(da%db)
         elif op == LEX_TYPES.LEX_EQUAL:     return CScriptVar(da==db)
         elif op == LEX_TYPES.LEX_NEQUAL:    return CScriptVar(da!=db)
-        elif op == ord('<'):     return CScriptVar(da<db)
+        elif op == '<':     return CScriptVar(da<db)
         elif op == LEX_TYPES.LEX_LEQUAL:    return CScriptVar(da<=db)
-        elif op == ord('>'):     return CScriptVar(da>db)
+        elif op == '>':     return CScriptVar(da>db)
         elif op == LEX_TYPES.LEX_GEQUAL:    return CScriptVar(da>=db)
         else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the Int datatype")
       else:
         # use doubles
         da = a.getDouble()
         db = b.getDouble()
-        if op == ord('+'): return CScriptVar(da+db)
-        elif op == ord('-'): return CScriptVar(da-db)
-        elif op == ord('*'): return CScriptVar(da*db)
-        elif op == ord('/'): return CScriptVar(da/db)
+        if op == '+': return CScriptVar(da+db)
+        elif op == '-': return CScriptVar(da-db)
+        elif op == '*': return CScriptVar(da*db)
+        elif op == '/': return CScriptVar(da/db)
         elif op == LEX_TYPES.LEX_EQUAL:     return CScriptVar(da==db)
         elif op == LEX_TYPES.LEX_NEQUAL:    return CScriptVar(da!=db)
-        elif op == ord('<'):     return CScriptVar(da<db)
+        elif op == '<':     return CScriptVar(da<db)
         elif op == LEX_TYPES.LEX_LEQUAL:    return CScriptVar(da<=db)
-        elif op == ord('>'):     return CScriptVar(da>db)
+        elif op == '>':     return CScriptVar(da>db)
         elif op == LEX_TYPES.LEX_GEQUAL:    return CScriptVar(da>=db)
         else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the Double datatype")
     elif a.isArray():
@@ -960,12 +1002,12 @@ class CScriptVar(object):
        da = a.getString();
        db = b.getString();
        # use strings
-       if op == ord('+'):           return CScriptVar(da+db, SCRIPTVAR_FLAGS.SCRIPTVAR_STRING)
+       if op == '+':           return CScriptVar(da+db, SCRIPTVAR_FLAGS.SCRIPTVAR_STRING)
        elif op == LEX_TYPES.LEX_EQUAL:     return CScriptVar(da==db)
        elif op == LEX_TYPES.LEX_NEQUAL:    return CScriptVar(da!=db)
-       elif op == ord('<'):     return CScriptVar(da<db)
+       elif op == '<':     return CScriptVar(da<db)
        elif op == LEX_TYPES.LEX_LEQUAL:    return CScriptVar(da<=db)
-       elif op == ord('>'):     return CScriptVar(da>db)
+       elif op == '>':     return CScriptVar(da>db)
        elif op == LEX_TYPES.LEX_GEQUAL:    return CScriptVar(da>=db)
        else: raise CScriptException("Operation "+CScriptLex.getTokenStr(op)+" not supported on the string datatype");
     ASSERT(0)
@@ -1111,7 +1153,14 @@ class CScriptVar(object):
     self.flags = (self.flags & ~SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK) | (val.flags & SCRIPTVAR_FLAGS.SCRIPTVAR_VARTYPEMASK)
 
 
+# ----------------------------------------------------------------------------------- CSCRIPT
+
 class CTinyJS(object):
+
+  # for debug:
+  def _dump(self):
+    return vars(self)
+  # end for debug
 
   def __initAllVars__(self):
     self.root = None
@@ -1125,7 +1174,8 @@ class CTinyJS(object):
   # public:
   def __init__(self, *args):
     self.__initAllVars__()
-    self.l = CScriptVar(TINYJS_BLANK_DATAk, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT).ref()
+    self.l = 0
+    self.root = CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT).ref()
     # Add built-in classes
     self.stringClass = (CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT)).ref()
     self.arrayClass = (CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT)).ref()
@@ -1143,13 +1193,6 @@ class CTinyJS(object):
     self.root.unref()
 
   def execute(self, code):
-    """ Evaluate the given code and return a link to a javascript object,
-        useful for (dangerous) JSON parsing. If nothing to return, will return
-        'undefined' variable type. CScriptVarLink is returned as this will
-        automatically unref the result as it goes out of scope. If you want to
-        keep it, you must use ref() and unref() */
-    """
-
     oldLex = self.l
     oldScopes = self.scopes
     self.l = CScriptLex(code)
@@ -1175,8 +1218,11 @@ class CTinyJS(object):
     self.scopes = oldScopes
 
   def evaluateComplex(self, code):
-    """  Evaluate the given code and return a string. If nothing to return, will return
-         'undefined' */
+    """ Evaluate the given code and return a link to a javascript object,
+        useful for (dangerous) JSON parsing. If nothing to return, will return
+        'undefined' variable type. CScriptVarLink is returned as this will
+        automatically unref the result as it goes out of scope. If you want to
+        keep it, you must use ref() and unref() */
     """
 
     oldLex = self.l
@@ -1193,7 +1239,7 @@ class CTinyJS(object):
       while 1:
         CLEAN(v);
         v = self.base(execute)
-        if self.l.tk!=LEX_TYPES.LEX_EOF: l.match(ord(';'))
+        if self.l.tk!=LEX_TYPES.LEX_EOF: l.match(';')
         if not self.l.tk != LEX_TYPES.LEX_EOF:
           break
     except CScriptException as e:
@@ -1218,6 +1264,13 @@ class CTinyJS(object):
     return CScriptVarLink(CScriptVar())
 
   def evaluate(self, code):
+    """  Evaluate the given code and return a string. If nothing to return, will return
+         'undefined' */
+    """
+
+    return self.evaluateComplex(code).var.getString()
+
+  def addNative(self, funcDesc, ptr, userdata):
     """ add a native function to be called from TinyJS
         example:
            \code
@@ -1233,20 +1286,17 @@ class CTinyJS(object):
            \endcode
     """
 
-    return self.evaluateComplex(code).var.getString()
-
-  def addNative(self, funcDesc, ptr, userdata):
     oldLex = self.l
     self.l = CScriptLex(funcDesc)
 
     base = self.root
 
     self.l.match(LEX_TYPES.LEX_R_FUNCTION)
-    funcName = l.tkStr
+    funcName = self.l.tkStr
     self.l.match(LEX_TYPES.LEX_ID)
     # Check for dots, we might want to do something like function String.substring ... 
-    while self.l.tk == ord('.'):
-      self.l.match(ord('.'))
+    while self.l.tk == '.':
+      self.l.match('.')
       link = base.findChild(funcName)
       # if it doesn't exist, make an object class
       if not link: link = base.addChild(funcName, CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT))
@@ -1319,7 +1369,7 @@ class CTinyJS(object):
         errorMsg = "Expecting '"
         errorMsg = errorMsg + function.name + "' to be a function"
         raise CScriptException(errorMsg)
-      self.l.match(ord('('))
+      self.l.match('(')
       # create a new symbol table entry for execution of this function
       functionRoot = CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_FUNCTION)
       if parent:
@@ -1336,9 +1386,9 @@ class CTinyJS(object):
             # pass by reference
             functionRoot.addChild(v.name, value.var)
         CLEAN(value)
-        if self.l.tk!=ord(')'): self.l.match(',')
+        if self.l.tk!=')': self.l.match(',')
         v = v.nextSibling
-      self.l.match(ord(')'))
+      self.l.match(')')
       # setup a return variable
       returnVar = None
       # execute function!
@@ -1355,7 +1405,7 @@ class CTinyJS(object):
         # we just want to execute the block, but something could
         # have messed up and left us with the wrong ScriptLex, so
         # we want to be careful here...
-        exception = 0
+        exception = None
         oldLex = self.l
         newLex = CScriptLex(function.var.getString())
         self.l = newLex
@@ -1383,23 +1433,23 @@ class CTinyJS(object):
         return CScriptVarLink(CScriptVar())
     else:
       # function, but not executing - just parse args and be done
-      self.l.match(ord('('))
-      while self.l.tk != ord(')'):
+      self.l.match('(')
+      while self.l.tk != ')':
         value = self.base(execute)
         CLEAN(value)
-        if self.l.tk!=ord(')'): self.l.match(ord(','))
-      self.l.match(ord(')'))
-      if self.l.tk == ord('{') : # TODO: why is this here?
+        if self.l.tk!=')': self.l.match(',')
+      self.l.match(')')
+      if self.l.tk == '{' : # TODO: why is this here?
         self.block(execute)
       # function will be a blank scriptvarlink if we're not executing,
       # so just return it rather than an alloc/free
       return function
 
   def factor(self, execute):
-    if self.l.tk==ord('('):
-      self.l.match(ord('('))
+    if self.l.tk=='(':
+      self.l.match('(')
       a = self.base(execute)
-      self.l.match(ord(')'))
+      self.l.match(')')
       return a
     if self.l.tk==LEX_TYPES.LEX_R_TRUE:
       self.l.match(LEX_TYPES.LEX_R_TRUE)
@@ -1414,7 +1464,7 @@ class CTinyJS(object):
       self.l.match(LEX_TYPES.LEX_R_UNDEFINED)
       return CScriptVarLink(CScriptVar(TINYJS_BLANK_DATA,SCRIPTVAR_FLAGS.SCRIPTVAR_UNDEFINED))
     if self.l.tk==LEX_TYPES.LEX_ID:
-      a = self.findInScopes(l.tkStr) if execute else CScriptVarLink(CScriptVar())
+      a = self.findInScopes(self.l.tkStr) if execute else CScriptVarLink(CScriptVar())
       # printf("0x%08X for %s at %s\n", (unsigned int)a, l->tkStr.c_str(), l->getPosition().c_str());
       # The parent if we're executing a method call
       parent = 0
@@ -1424,11 +1474,11 @@ class CTinyJS(object):
         # (we won't add it here. This is done in the assignment operator)
         a = CScriptVarLink(CScriptVar(), self.l.tkStr)
       self.l.match(LEX_TYPES.LEX_ID)
-      while self.l.tk==ord('(') or self.l.tk==ord('.') or self.l.tk==ord('['):
-        if self.l.tk==ord('('):  # ------------------------------------- Function Call
+      while self.l.tk=='(' or self.l.tk=='.' or self.l.tk=='[':
+        if self.l.tk=='(':  # ------------------------------------- Function Call
           a = self.functionCall(execute, a, parent)
-        elif self.l.tk == ord('.'): # ------------------------------------- Record Access
-          self.l.match(ord('.'))
+        elif self.l.tk == '.': # ------------------------------------- Record Access
+          self.l.match('.')
           if execute:
             name = self.l.tkStr
             child = a.var.findChild(name)
@@ -1447,10 +1497,10 @@ class CTinyJS(object):
             parent = a.var
             a = child
           self.l.match(LEX_TYPES.LEX_ID)
-        elif self.l.tk == ord('['): # ------------------------------------- Array Access
-          self.l.match(ord('['))
+        elif self.l.tk == '[': # ------------------------------------- Array Access
+          self.l.match('[')
           index = self.base(execute)
-          self.l.match(ord(']'))
+          self.l.match(']')
           if execute:
             child = a.var.findChildOrCreate(index.var.getString())
             parent = a.var
@@ -1467,31 +1517,31 @@ class CTinyJS(object):
       a = CScriptVar(self.l.tkStr, SCRIPTVAR_FLAGS.SCRIPTVAR_STRING)
       self.l.match(LEX_TYPES.LEX_STR)
       return CScriptVarLink(a)
-    if self.l.tk==ord('{'):
+    if self.l.tk=='{':
       contents = CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_OBJECT)
       # JSON-style object definition
-      self.l.match(ord('{'))
-      while self.l.tk != ord('}'):
+      self.l.match('{')
+      while self.l.tk != '}':
         id = self.l.tkStr
         # we only allow strings or IDs on the left hand side of an initialisation
         if self.l.tk==LEX_TYPES.LEX_STR: self.l.match(LEX_TYPES.LEX_STR)
         else: self.l.match(LEX_TYPES.LEX_ID)
-        self.l.match(ord(':'))
+        self.l.match(':')
         if execute:
           a = self.base(execute)
           contents.addChild(id, a.var)
           CLEAN(a)
         # no need to clean here, as it will definitely be used
-        if self.l.tk != ord('}'): self.l.match(ord(','))
+        if self.l.tk != '}': self.l.match(',')
 
-      self.l.match(ord('}'))
+      self.l.match('}')
       return CScriptVarLink(contents)
-    if self.l.tk==ord('['):
+    if self.l.tk=='[':
       contents = CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_ARRAY)
       # JSON-style array
-      self.l.match(ord('['))
+      self.l.match('[')
       idx = 0
-      while self.l.tk != ord(']'):
+      while self.l.tk != ']':
         if execute:
           idx_str = '%d' % idx
 
@@ -1499,9 +1549,9 @@ class CTinyJS(object):
           contents.addChild(idx_str, a.var)
           CLEAN(a)
         # no need to clean here, as it will definitely be used
-        if self.l.tk != ord(']'): self.l.match(ord(','))
+        if self.l.tk != ']': self.l.match(',')
         idx+=1
-      self.l.match(ord(']'))
+      self.l.match(']')
       return CScriptVarLink(contents)
     if self.l.tk==LEX_TYPES.LEX_R_FUNCTION:
       funcVar = self.parseFunctionDefinition()
@@ -1524,22 +1574,22 @@ class CTinyJS(object):
           CLEAN(self.functionCall(execute, objClassOrFunc, obj))
         else:
           obj.addChild(TINYJS_PROTOTYPE_CLASS, objClassOrFunc.var)
-          if self.l.tk == ord('('):
-            self.l.match(ord('('))
-            self.l.match(ord(')'))
+          if self.l.tk == '(':
+            self.l.match('(')
+            self.l.match(')')
         return objLink
       else:
         self.l.match(LEX_TYPES.LEX_ID)
-        if self.l.tk == ord('('):
-          self.l.match(ord('('))
-          self.l.match(ord(')'))
+        if self.l.tk == '(':
+          self.l.match('(')
+          self.l.match(')')
     # Nothing we can do here... just hope it's the end...
     self.l.match(LEX_TYPES.LEX_EOF)
     return 0
 
   def unary(self, execute):
-    if self.l.tk==ord('!'):
-      self.l.match(ord('!')) # // binary not
+    if self.l.tk=='!':
+      self.l.match('!') # // binary not
       a = self.factor(execute)
       if execute:
         zero = CScriptVar(0)
@@ -1551,7 +1601,7 @@ class CTinyJS(object):
 
   def term(self, execute):
     a = self.unary(execute)
-    while self.l.tk==ord('*') or self.l.tk==ord('/') or self.l.tk==ord('%'):
+    while self.l.tk=='*' or self.l.tk=='/' or self.l.tk=='%':
       op = self.l.tk
       self.l.match(self.l.tk)
       b = self.unary(execute)
@@ -1563,23 +1613,23 @@ class CTinyJS(object):
 
   def expression(self, execute):
     negate = False
-    if self.l.tk==ord('-'):
-        self.l.match(ord('-'))
+    if self.l.tk=='-':
+        self.l.match('-')
         negate = True
     a = self.term(execute)
     if negate:
       zero = CScriptVar(0)
-      res = zero.mathsOp(a.var, ord('-'))
+      res = zero.mathsOp(a.var, '-')
       CREATE_LINK(a, res)
 
-    while self.l.tk==ord('+') or self.l.tk==ord('-') or\
+    while self.l.tk=='+' or self.l.tk=='-' or\
       self.l.tk==LEX_TYPES.LEX_PLUSPLUS or self.l.tk==LEX_TYPES.LEX_MINUSMINUS:
       op = self.l.tk
       self.l.match(self.l.tk)
       if op==LEX_TYPES.LEX_PLUSPLUS or op==LEX_TYPES.LEX_MINUSMINUS:
         if execute:
           one = CScriptVar(1)
-          res = a.var.mathsOp(one, ord('+') if op==LEX_PLUSPLUS else ord('-'))
+          res = a.var.mathsOp(one, '+' if op==LEX_TYPES.LEX_PLUSPLUS else '-')
           oldValue = CScriptVarLink(a.var)
           # in-place add/subtract
           a.replaceWith(res)
@@ -1613,19 +1663,20 @@ class CTinyJS(object):
     while self.l.tk==LEX_TYPES.LEX_EQUAL or self.l.tk==LEX_TYPES.LEX_NEQUAL or\
          self.l.tk==LEX_TYPES.LEX_TYPEEQUAL or self.l.tk==LEX_TYPES.LEX_NTYPEEQUAL or\
          self.l.tk==LEX_TYPES.LEX_LEQUAL or self.l.tk==LEX_TYPES.LEX_GEQUAL or\
-         self.l.tk==ord('<') or self.l.tk==ord('>'):
+         self.l.tk=='<' or self.l.tk=='>':
       op = self.l.tk
       self.l.match(self.l.tk)
       b = self.shift(execute)
       if execute:
         res = a.var.mathsOp(b.var, op)
+        # TODO BUG fixed
         CREATE_LINK(a,res)
       CLEAN(b)
     return a
 
   def logic(self, execute):
     a = self.condition(execute)
-    while self.l.tk==ord('&') or self.l.tk==ord('|') or self.l.tk==ord('^') or\
+    while self.l.tk=='&' or self.l.tk=='|' or self.l.tk=='^' or\
       self.l.tk==LEX_TYPES.LEX_ANDAND or self.l.tk==LEX_TYPES.LEX_OROR:
       noexecute = False
       op = self.l.tk
@@ -1636,11 +1687,11 @@ class CTinyJS(object):
       # we don't bother to execute the other op. Even if not
       # we need to tell mathsOp it's an & or |
       if op==LEX_TYPES.LEX_ANDAND:
-        op = ord('&')
+        op = '&'
         shortCircuit = not a.var.getBool()
         boolean = True
       elif op==LEX_TYPES.LEX_OROR:
-        op = ord('|')
+        op = '|'
         shortCircuit = a.var.getBool()
         boolean = True
       b = self.condition(noexecute if shortCircuit else execute)
@@ -1658,8 +1709,8 @@ class CTinyJS(object):
   def ternary(self, execute):
     lhs = self.logic(execute)
     noexec = False
-    if self.l.tk==ord('?'):
-      self.l.match(ord('?'))
+    if self.l.tk=='?':
+      self.l.match('?')
       if not execute:
         CLEAN(lhs)
         CLEAN(base(noexec))
@@ -1670,18 +1721,18 @@ class CTinyJS(object):
         CLEAN(lhs)
         if first:
           lhs = self.base(execute)
-          self.l.match(ord(':'))
-          CLEAN(base(noexec))
+          self.l.match(':')
+          CLEAN(self.base(noexec))
         else:
           CLEAN(self.base(noexec))
-          self.l.match(ord(':'))
+          self.l.match(':')
           lhs = self.base(execute)
 
     return lhs
 
   def base(self, execute):
     lhs = self.ternary(execute)
-    if self.l.tk==ord('=') or self.l.tk==LEX_TYPES.LEX_PLUSEQUAL or self.l.tk==LEX_TYPES.LEX_MINUSEQUAL:
+    if self.l.tk=='=' or self.l.tk==LEX_TYPES.LEX_PLUSEQUAL or self.l.tk==LEX_TYPES.LEX_MINUSEQUAL:
       # If we're assigning to this and we don't have a parent,
       # add it to the symbol table root as per JavaScript. */
       if execute and not lhs.owned:
@@ -1696,13 +1747,13 @@ class CTinyJS(object):
       self.l.match(self.l.tk)
       rhs = self.base(execute)
       if execute:
-        if op==ord('='):
+        if op=='=':
           lhs.replaceWith(rhs)
         elif op==LEX_TYPES.LEX_PLUSEQUAL:
-          res = lhs.var.mathsOp(rhs.var, ord('+'))
+          res = lhs.var.mathsOp(rhs.var, '+')
           lhs.replaceWith(res)
         elif op==LEX_TYPES.LEX_MINUSEQUAL:
-          res = lhs.var.mathsOp(rhs.var, ord('-'))
+          res = lhs.var.mathsOp(rhs.var, '-')
           lhs.replaceWith(res)
         else: ASSERT(0)
       
@@ -1710,32 +1761,32 @@ class CTinyJS(object):
     return lhs
 
   def block(self, execute):
-    self.l.match(ord('{'))
+    self.l.match('{')
     if execute:
-      while self.l.tk and self.l.tk!=ord('}'):
+      while self.l.tk and self.l.tk!='}':
         self.statement(execute)
-      self.l.match(ord('}'))
+      self.l.match('}')
     else:
       # fast skip of blocks
       brackets = 1
       while self.l.tk and brackets:
-        if self.l.tk == ord('{'): brackets+=1
-        if self.l.tk == ord('}'): brackets-=1
-        self.l.match(l.tk)
+        if self.l.tk == '{': brackets+=1
+        if self.l.tk == '}': brackets-=1
+        self.l.match(self.l.tk)
 
   def statement(self, execute):
     if (self.l.tk==LEX_TYPES.LEX_ID or
         self.l.tk==LEX_TYPES.LEX_INT or
         self.l.tk==LEX_TYPES.LEX_FLOAT or
         self.l.tk==LEX_TYPES.LEX_STR or
-        self.l.tk==ord('-')):
+        self.l.tk=='-'):
       # Execute a simple statement that only contains basic arithmetic...
       CLEAN(self.base(execute))
-      self.l.match(ord(';'))
-    elif self.l.tk==ord('{'):
+      self.l.match(';')
+    elif self.l.tk=='{':
       # A block of code
       self.block(execute)
-    elif self.l.tk==ord(';'):
+    elif self.l.tk==';':
       # Empty statement - to allow things like ;;;
       self.l.match(';')
     elif self.l.tk==LEX_TYPES.LEX_R_VAR:
@@ -1743,33 +1794,33 @@ class CTinyJS(object):
       # hand side. Maybe just have a flag called can_create_var that we
       # set and then we parse as if we're doing a normal equals.
       self.l.match(LEX_TYPES.LEX_R_VAR)
-      while self.l.tk != ord(';'):
+      while self.l.tk != ';':
         a = 0
         if execute:
           a = self.scopes[-1].findChildOrCreate(self.l.tkStr)
         self.l.match(LEX_TYPES.LEX_ID)
         # now do stuff defined with dots
-        while self.l.tk == ord('.'):
-          self.l.match(ord('.'))
+        while self.l.tk == '.':
+          self.l.match('.')
           if execute:
             lastA = a
             a = lastA.var.findChildOrCreate(self.l.tkStr)
           self.l.match(LEX_TYPES.LEX_ID)
         # sort out initialiser
-        if self.l.tk == ord('='):
-          self.l.match(ord('='))
+        if self.l.tk == '=':
+          self.l.match('=')
           var = self.base(execute)
           if execute:
             a.replaceWith(var)
           CLEAN(var)
-        if self.l.tk != ord(';'):
+        if self.l.tk != ';':
           self.l.match(',')
-      self.l.match(ord(';'))
+      self.l.match(';')
     elif self.l.tk==LEX_TYPES.LEX_R_IF:
         self.l.match(LEX_TYPES.LEX_R_IF)
-        self.l.match(ord('('))
+        self.l.match('(')
         var = self.base(execute)
-        self.l.match(ord(')'))
+        self.l.match(')')
         cond = execute and var.var.getBool()
         CLEAN(var)
         noexecute = False # because we need to be abl;e to write to it
@@ -1781,14 +1832,14 @@ class CTinyJS(object):
       # We do repetition by pulling out the string representing our statement
       # there's definitely some opportunity for optimisation here
       self.l.match(LEX_TYPES.LEX_R_WHILE);
-      self.l.match(ord('('))
+      self.l.match('(')
       whileCondStart = self.l.tokenStart
       noexecute = False
       cond = self.base(execute)
       loopCond = execute and cond.var.getBool()
       CLEAN(cond)
       whileCond = self.l.getSubLex(whileCondStart)
-      self.l.match(ord(')'))
+      self.l.match(')')
       whileBodyStart = self.l.tokenStart
       self.statement(execute if loopCond else noexecute)
       whileBody = self.l.getSubLex(whileBodyStart)
@@ -1815,7 +1866,7 @@ class CTinyJS(object):
           raise CScriptException("LOOP_ERROR")
     elif self.l.tk==LEX_TYPES.LEX_R_FOR:
       self.l.match(LEX_TYPES.LEX_R_FOR)
-      self.l.match(ord('('))
+      self.l.match('(')
       self.statement(execute) # initialisation
       #l.match(';')
       forCondStart = self.l.tokenStart
@@ -1824,11 +1875,11 @@ class CTinyJS(object):
       loopCond = execute and cond.var.getBool()
       CLEAN(cond)
       forCond = self.l.getSubLex(forCondStart)
-      self.l.match(ord(';'))
+      self.l.match(';')
       forIterStart = self.l.tokenStart
-      CLEAN(base(noexecute)) # iterator
+      CLEAN(self.base(noexecute)) # iterator
       forIter = self.l.getSubLex(forIterStart)
-      self.l.match(ord(')'))
+      self.l.match(')')
       forBodyStart = self.l.tokenStart
       self.statement(execute if loopCond else noexecute)
       forBody = self.l.getSubLex(forBodyStart)
@@ -1836,11 +1887,13 @@ class CTinyJS(object):
       if loopCond:
         forIter.reset()
         self.l = forIter
-        CLEAN(base(execute))
+        CLEAN(self.base(execute))
       loopCount = TINYJS_LOOP_MAX_ITERATIONS
       while execute and loopCond and loopCount:
         forCond.reset()
         self.l = forCond
+        # import ipdb
+        # ipdb.set_trace()
         cond = self.base(execute)
         loopCond = cond.var.getBool()
         CLEAN(cond)
@@ -1864,7 +1917,7 @@ class CTinyJS(object):
     elif self.l.tk==LEX_TYPES.LEX_R_RETURN:
       self.l.match(LEX_TYPES.LEX_R_RETURN)
       result = 0
-      if self.l.tk != ord(';'):
+      if self.l.tk != ';':
         result = self.base(execute)
       if execute:
         resultVar = self.scopes[-1].findChild(TINYJS_RETURN_VAR)
@@ -1874,7 +1927,7 @@ class CTinyJS(object):
           TRACE("RETURN statement, but not in a function.")
         execute = False
       CLEAN(result)
-      self.l.match(ord(';'))
+      self.l.match(';')
     elif self.l.tk==LEX_TYPES.LEX_R_FUNCTION:
       funcVar = self.parseFunctionDefinition()
       if execute:
@@ -1903,12 +1956,12 @@ class CTinyJS(object):
     return funcVar
 
   def parseFunctionArguments(self, funcVar):
-    self.l.match(ord('('))
-    while self.l.tk!=ord(')'):
+    self.l.match('(')
+    while self.l.tk!=')':
       funcVar.addChildNoDup(self.l.tkStr)
-      l.match(LEX_TYPES.LEX_ID)
-      if self.l.tk!=ord(')'): self.l.match(ord(','))
-    l.match(ord(')'))
+      self.l.match(LEX_TYPES.LEX_ID)
+      if self.l.tk!=')': self.l.match(',')
+    self.l.match(')')
 
   # Finds a child, looking recursively up the scopes
   def findInScopes(self, childName):
@@ -1937,3 +1990,8 @@ class CTinyJS(object):
 
     return 0;
 
+def test():
+  pass
+
+if __name__ == '__main__':
+  test()
