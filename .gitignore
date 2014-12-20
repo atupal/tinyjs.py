@@ -52,3 +52,7 @@ docs/_build/
 
 # PyBuilder
 target/
+
+
+# dump file of failure test
+*.js.fail.js
