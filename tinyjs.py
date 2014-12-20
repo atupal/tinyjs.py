@@ -144,10 +144,12 @@ class SCRIPTVAR_FLAGS(object):
                             SCRIPTVAR_ARRAY |\
                             SCRIPTVAR_NULL
 
-TINYJS_RETURN_VAR = "return"
+TINYJS_RETURN_VAR = "__return"
+TINYJS_HAS_RETURN_VAR = "__has_return"
+TINYJS_TEMP_NAME = "__tmp_name"
+TINYJS_BLANK_DATA = "__"
+
 TINYJS_PROTOTYPE_CLASS = "prototype"
-TINYJS_TEMP_NAME = "tmp_name"
-TINYJS_BLANK_DATA = ""
 
 class CScriptException(Exception):
   def __init__(self, value):
@@ -1373,6 +1375,8 @@ class CTinyJS(object):
       self.l.match('(')
       # create a new symbol table entry for execution of this function
       functionRoot = CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FLAGS.SCRIPTVAR_FUNCTION)
+      has_return = CScriptVar(0)
+      functionRoot.addChildNoDup(TINYJS_HAS_RETURN_VAR, has_return)
       if parent:
         functionRoot.addChildNoDup("this", parent)
       # grab in all parameters
@@ -1413,7 +1417,7 @@ class CTinyJS(object):
         try:
           self.block(execute)
           # because return will probably have called this, and set execute to false
-          execute = True
+          # execute = True
         except CScriptException as e:
           exception = e
         del newLex
@@ -1920,13 +1924,16 @@ class CTinyJS(object):
       result = 0
       if self.l.tk != ';':
         result = self.base(execute)
-      if execute:
+      #if execute:
+      has_return = self.findInScopes(TINYJS_HAS_RETURN_VAR)
+      if not has_return.var.getInt() and execute:
         resultVar = self.scopes[-1].findChild(TINYJS_RETURN_VAR)
         if resultVar:
           resultVar.replaceWith(result)
         else:
           TRACE("RETURN statement, but not in a function.")
-        execute = False
+        # execute = False
+        has_return.var.setInt(1)
       CLEAN(result)
       self.l.match(';')
     elif self.l.tk==LEX_TYPES.LEX_R_FUNCTION:
