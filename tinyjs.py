@@ -33,6 +33,7 @@ def CLEAN(x):
     del __v
 
 def CREATE_LINK(LINK, VAR):
+  """ performance problem...
   import inspect
   import re
   import ast
@@ -48,9 +49,11 @@ def CREATE_LINK(LINK, VAR):
   first_arg_name = function_actual_args[0].id
 
   frame = inspect.currentframe()
+  """
 
   if not LINK or LINK.owned:
-    # LINK = CScriptVarLink(VAR)
+    LINK = CScriptVarLink(VAR)
+    """ performance problem...
     iter_frame = frame.f_back
     while iter_frame:
       if first_arg_name in iter_frame.f_locals:
@@ -58,8 +61,11 @@ def CREATE_LINK(LINK, VAR):
         iter_frame.f_locals[first_arg_name] = CScriptVarLink(VAR)
         ctypes.pythonapi.PyFrame_LocalsToFast(ctypes.py_object(iter_frame), ctypes.c_int(0))
         break
+    """
   else:
     LINK.replaceWith(VAR)
+
+  return LINK
 
 def ASSERT(x):
   assert(x)
@@ -1599,7 +1605,7 @@ class CTinyJS(object):
       if execute:
         zero = CScriptVar(0)
         res = a.var.mathsOp(zero, LEX_TYPES.LEX_EQUAL)
-        CREATE_LINK(a, res)
+        a = CREATE_LINK(a, res)
     else:
       a = self.factor(execute)
     return a
@@ -1612,7 +1618,7 @@ class CTinyJS(object):
       b = self.unary(execute)
       if execute:
         res = a.var.mathsOp(b.var, op)
-        CREATE_LINK(a, res)
+        a = CREATE_LINK(a, res)
       CLEAN(b)
     return a
 
@@ -1625,7 +1631,7 @@ class CTinyJS(object):
     if negate:
       zero = CScriptVar(0)
       res = zero.mathsOp(a.var, '-')
-      CREATE_LINK(a, res)
+      a = CREATE_LINK(a, res)
 
     while self.l.tk=='+' or self.l.tk=='-' or\
       self.l.tk==LEX_TYPES.LEX_PLUSPLUS or self.l.tk==LEX_TYPES.LEX_MINUSMINUS:
@@ -1645,7 +1651,7 @@ class CTinyJS(object):
         if execute:
           # not in-place, so just replace
           res = a.var.mathsOp(b.var, op)
-          CREATE_LINK(a, res)
+          a = CREATE_LINK(a, res)
         CLEAN(b)
     return a
 
@@ -1677,7 +1683,7 @@ class CTinyJS(object):
       b = self.shift(execute)
       if execute:
         res = a.var.mathsOp(b.var, op)
-        CREATE_LINK(a,res)
+        a = CREATE_LINK(a,res)
       CLEAN(b)
     return a
 
@@ -1706,10 +1712,10 @@ class CTinyJS(object):
         if boolean:
           newa = CScriptVar(a.var.getBool())
           newb = CScriptVar(b.var.getBool())
-          CREATE_LINK(a, newa)
-          CREATE_LINK(b, newb)
+          a = CREATE_LINK(a, newa)
+          b = CREATE_LINK(b, newb)
         res = a.var.mathsOp(b.var, op)
-        CREATE_LINK(a, res)
+        a = CREATE_LINK(a, res)
       CLEAN(b)
     return a
 
