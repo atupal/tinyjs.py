@@ -54,6 +54,7 @@ def CREATE_LINK(LINK, VAR):
     iter_frame = frame.f_back
     while iter_frame:
       if first_arg_name in iter_frame.f_locals:
+        # make the modify of f_locals(not current frame) permanently
         iter_frame.f_locals[first_arg_name] = CScriptVarLink(VAR)
         ctypes.pythonapi.PyFrame_LocalsToFast(ctypes.py_object(iter_frame), ctypes.c_int(0))
         break
@@ -240,7 +241,7 @@ class CScriptLex(object):
     if token == LEX_TYPES.LEX_LSHIFTEQUAL : return "<<=";
     if token == LEX_TYPES.LEX_GEQUAL : return ">=";
     if token == LEX_TYPES.LEX_RSHIFT : return ">>";
-    if token == LEX_TYPES.LEX_RSHIFTUNSIGNED : return ">>";
+    if token == LEX_TYPES.LEX_RSHIFTUNSIGNED : return ">>>";
     if token == LEX_TYPES.LEX_RSHIFTEQUAL : return ">>=";
     if token == LEX_TYPES.LEX_PLUSEQUAL : return "+=";
     if token == LEX_TYPES.LEX_MINUSEQUAL : return "-=";
@@ -1655,7 +1656,10 @@ class CTinyJS(object):
       if execute:
         if op==LEX_TYPES.LEX_LSHIFT: a.var.setInt(a.var.getInt() << shift)
         if op==LEX_TYPES.LEX_RSHIFT: a.var.setInt(a.var.getInt() >> shift)
-        if op==LEX_TYPES.LEX_RSHIFTUNSIGNED: a.var.setInt(a.var.getInt() >> shift)
+        #if (op==LEX_RSHIFTUNSIGNED) a->var->setInt(((unsigned int)a->var->getInt()) >> shift);
+        import ctypes
+        uint_a = ctypes.c_uint(a.var.getInt())
+        if op==LEX_TYPES.LEX_RSHIFTUNSIGNED: a.var.setInt(uint_a.value >> shift)
     return a
 
   def condition(self, execute):
@@ -1669,7 +1673,6 @@ class CTinyJS(object):
       b = self.shift(execute)
       if execute:
         res = a.var.mathsOp(b.var, op)
-        # TODO BUG fixed
         CREATE_LINK(a,res)
       CLEAN(b)
     return a
@@ -1892,8 +1895,6 @@ class CTinyJS(object):
       while execute and loopCond and loopCount:
         forCond.reset()
         self.l = forCond
-        # import ipdb
-        # ipdb.set_trace()
         cond = self.base(execute)
         loopCond = cond.var.getBool()
         CLEAN(cond)
